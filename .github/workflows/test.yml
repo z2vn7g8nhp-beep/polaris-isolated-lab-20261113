@@ -1,0 +1,19 @@
+name: Test scheduler
+
+on:
+  push:
+    paths: ['scripts/**', 'tests/**', '.github/workflows/**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -v

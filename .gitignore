@@ -1,0 +1,7 @@
+/reference/
+/xian-watch-source/
+/MIGRATION-AUDIT.md
+.env
+.env.*
+__pycache__/
+*.pyc

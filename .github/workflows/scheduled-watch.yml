@@ -1,0 +1,58 @@
+name: Scheduled watch
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Site operation
+        type: choice
+        default: check
+        options: [check, status, configure]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: polaris-scheduled-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check the existing Site
+        env:
+          WATCH_SITE_URL: ${{ secrets.WATCH_SITE_URL }}
+          WATCH_SITE_TOKEN: ${{ secrets.WATCH_SITE_TOKEN }}
+          WATCH_MODE: ${{ inputs.mode || 'check' }}
+        run: python3 scripts/watch.py --mode "$WATCH_MODE"
+
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Keep only this scheduler repository active
+        run: |
+          python3 - <<'PY'
+          import pathlib, time
+          p = pathlib.Path('.github/heartbeat')
+          previous = int(p.read_text()) if p.exists() else 0
+          if time.time() - previous >= 25 * 86400:
+              p.write_text(str(int(time.time())) + '\n')
+          PY
+          if ! git diff --quiet -- .github/heartbeat || [ -n "$(git ls-files --others --exclude-standard .github/heartbeat)" ]; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add .github/heartbeat
+            git commit -m 'Keep scheduler active'
+            git push origin HEAD:main
+          fi
