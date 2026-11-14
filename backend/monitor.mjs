@@ -127,7 +127,8 @@ async function ingestCinema(env,data,cinema){
 export async function updateCatalog(env){
   let job=await get(env,'catalog_job');
   const needsComing=(await get(env,'coming_ids'))===null;
-  if(needsComing&&job?.which==='released')job=null;
+  // Older snapshots may have an in-flight page job but no canonical ID list.
+  if(needsComing)job=null;
   if(!job){
     const which=needsComing?'upcoming':await get(env,'catalog_next','upcoming');
     const data=await source(which==='upcoming'?'comingList?ci=42&token=&limit=12':'movieOnInfoList?ci=42');

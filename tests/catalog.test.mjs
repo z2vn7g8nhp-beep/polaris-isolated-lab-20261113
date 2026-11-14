@@ -7,8 +7,9 @@ import {sortComing,groupComing,isComing} from '../docs/catalog.mjs';
 test('coming classification uses Maoyan membership rather than only a future release date',async()=>{
   const e=dbEnv();e.db.exec(readFileSync(new URL('../backend/schema.sql',import.meta.url),'utf8'));await call(e,'state');
   e.db.prepare('INSERT INTO radar_movies VALUES (?,?,?)').run('991',JSON.stringify({id:991,nm:'未在猫眼待映的未来电影',rt:'2040-01-01'}),1);
+  e.db.prepare('INSERT INTO radar_kv VALUES (?,?)').run('catalog_job',JSON.stringify({which:'upcoming',remaining:[991]}));
   const original=globalThis.fetch;
-  globalThis.fetch=async()=>new Response(JSON.stringify({coming:[{id:992,nm:'猫眼待映',rt:'2030-12-01',wish:5}],movieIds:[992]}),{headers:{'Content-Type':'application/json'}});
+  globalThis.fetch=async url=>{assert.match(String(url),/\/comingList\?/);return new Response(JSON.stringify({coming:[{id:992,nm:'猫眼待映',rt:'2030-12-01',wish:5}],movieIds:[992]}),{headers:{'Content-Type':'application/json'}})};
   try{await updateCatalog(e)}finally{globalThis.fetch=original}
   const state=await call(e,'state');
   assert.equal(state.comingSourceReady,true);assert.equal(state.comingTotal,1);
