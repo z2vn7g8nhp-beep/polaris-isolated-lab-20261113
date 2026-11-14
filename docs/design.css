@@ -48,9 +48,16 @@ a {
 }
 button:focus-visible,
 a:focus-visible,
-input:focus-visible {
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
   outline: 2px solid var(--yellow);
   outline-offset: 5px;
+}
+/* The skip-link target is a content region, not an interactive control.
+   Safari otherwise draws its native focus ring around the entire film list. */
+#content:focus {
+  outline: none;
 }
 ::selection {
   background: #e7cbd0;
