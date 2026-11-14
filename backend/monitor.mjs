@@ -626,6 +626,7 @@ async function tick(env) {
     now(),
   ).run();
   if (!lease.meta.changes) return { busy: true };
+  const previousSuccess = await get(env, "last_success");
   env.DELIVERY_DEADLINE = Date.now() + 60000;
   try {
     await seed(env);
@@ -687,15 +688,17 @@ async function tick(env) {
     return { error: msg };
   } finally {
     delete env.DELIVERY_DEADLINE;
-    const at = now();
+    const successfulAt = await get(env, "last_success");
+    const succeeded = !!successfulAt && successfulAt !== previousSuccess;
+    const at = succeeded ? successfulAt : now();
     const history = await get(env, "health_history", []);
     const checks = await Promise.all(
       CINEMAS.map((c) => get(env, "cinema_" + c.id)),
     );
-    if (!history.length || at - history.at(-1).at >= 30) {
+    if (succeeded || !history.length || at - history.at(-1).at >= 30) {
       history.push({
         at,
-        success: (await get(env, "last_success")) === at,
+        success: succeeded,
         error: !!(await get(env, "last_error")),
         paused: !!(await get(env, "paused")),
         cinemas: checks.map((c, i) => ({

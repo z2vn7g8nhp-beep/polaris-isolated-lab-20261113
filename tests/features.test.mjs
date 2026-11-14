@@ -357,3 +357,68 @@ test("queued notifications are reduced to currently matching sessions before del
   assert.ok(!body.includes("10:00"));
   assert.equal((await call(e, "state")).events[0].sessions.length, 1);
 });
+
+test("health history uses the actual check time even when notification delivery takes longer", async (t) => {
+  const e = env();
+  t.after(() => e.db.close());
+  await call(e, "state");
+  e.db
+    .prepare("INSERT INTO radar_movies VALUES (?,?,?)")
+    .run("111", JSON.stringify({ ...movie, rt: "2030-12-01" }), 1);
+  freshCatalog(e);
+  await applyPreferences(e, {
+    revision: "health",
+    stars: ["111"],
+    pushSubscription: sub("health"),
+    notificationMode: "push",
+  });
+  const originalFetch = globalThis.fetch,
+    originalNow = Date.now;
+  let elapsed = 0;
+  Date.now = () => originalNow() + elapsed;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    Date.now = originalNow;
+  });
+  globalThis.fetch = async (url) => {
+    const id = String(url).includes("39869") ? 39869 : 25769;
+    return new Response(
+      JSON.stringify({
+        showData: {
+          cinemaId: id,
+          movies:
+            id === 25769
+              ? [
+                  {
+                    ...movie,
+                    rt: "2030-12-01",
+                    shows: [
+                      {
+                        plist: [
+                          {
+                            seqNo: "health",
+                            dt: "2030-09-20",
+                            tm: "19:30",
+                            th: "IMAX",
+                            enterShowSeat: 1,
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ]
+              : [],
+        },
+      }),
+      { headers: { "Content-Type": "application/json" } },
+    );
+  };
+  e.PUSH_SEND = async () => {
+    elapsed += 3000;
+    return { statusCode: 201 };
+  };
+  await call(e, "tick", {});
+  const state = await call(e, "state");
+  assert.equal(state.healthHistory.at(-1).success, true);
+  assert.equal(state.healthHistory.at(-1).at, state.lastSuccess);
+});
