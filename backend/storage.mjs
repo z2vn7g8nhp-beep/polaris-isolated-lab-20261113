@@ -142,6 +142,12 @@ export async function applyPreferences(env, prefs) {
       prefs.readEvents.some((id) => typeof id !== "string" || id.length > 100))
   )
     throw new Error("已读记录无效");
+  if (
+    prefs.countdownMovieId !== undefined &&
+    (typeof prefs.countdownMovieId !== "string" ||
+      !/^\d+$/.test(prefs.countdownMovieId))
+  )
+    throw new Error("倒计时电影编号无效");
   const current = await call(env, "state");
   if (prefs.movieRules !== undefined) set(env, "movie_rules", rules);
   if (prefs.starRevisions) set(env, "star_revisions", prefs.starRevisions);
