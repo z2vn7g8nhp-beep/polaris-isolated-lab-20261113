@@ -16,7 +16,7 @@ import {
   pushSupport,
   enablePhonePush,
   disablePhonePush,
-} from "./push.mjs?v=calm-1";
+} from "./push.mjs?v=push-2";
 import { isComing, groupComing, posterUrl } from "./catalog.mjs?v=calm-1";
 import { checkHealth } from "./status.mjs?v=calm-1";
 let data = null,
