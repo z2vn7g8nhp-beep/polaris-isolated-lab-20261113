@@ -66,11 +66,23 @@ export function parseSessions(data, cinema) {
     throw new Error("影院响应结构或 ID 异常");
   const rows = [];
   for (const m of movies) {
+    if (!/^\d+$/.test(String(m.id))) throw new Error("电影编号异常");
     if (!Array.isArray(m.shows)) throw new Error("排片响应缺少日期");
     for (const d of m.shows) {
       if (!Array.isArray(d.plist)) throw new Error("排片响应缺少场次");
       for (const s of d.plist) {
-        if (!s.dt || !s.tm || !s.th) throw new Error("场次缺少时间或影厅");
+        if (
+          typeof s.dt !== "string" ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(s.dt) ||
+          !Number.isFinite(Date.parse(s.dt + "T00:00:00Z")) ||
+          new Date(s.dt + "T00:00:00Z").toISOString().slice(0, 10) !== s.dt ||
+          typeof s.tm !== "string" ||
+          !/^([01]\d|2[0-3]):[0-5]\d$/.test(s.tm) ||
+          typeof s.th !== "string" ||
+          !s.th.trim() ||
+          (s.tp != null && typeof s.tp !== "string")
+        )
+          throw new Error("场次时间或影厅格式异常");
         const starts = `${s.dt}T${s.tm}:00+08:00`;
         if (Date.parse(starts) < Date.now()) continue;
         const id = [cinema.id, m.id, s.seqNo || `${s.dt}:${s.tm}:${s.th}`].join(
@@ -308,6 +320,7 @@ async function deliver(env) {
     (mode === "bark" && !(await get(env, "bark")))
   )
     return;
+  env.DELIVERY_DEADLINE ||= Date.now() + 60000;
   const events = (
     await q(
       env,
@@ -332,14 +345,23 @@ async function deliver(env) {
       ).first();
       const rule = (await get(env, "movie_rules", {}))[e.movie_id];
       const detail = await get(env, "event_" + e.id);
+      const snapshots = new Map();
+      if (detail?.sessions)
+        for (const id of new Set(detail.sessions.map((r) => r.cinema_id))) {
+          const check = await get(env, "cinema_" + id);
+          const rows = await get(env, "sessions_" + id);
+          if (check?.checked >= e.created_at && Array.isArray(rows))
+            snapshots.set(id, new Map(rows.map((r) => [r.id, r])));
+        }
+      const eligible = (r) =>
+        Date.parse(r.starts_at) > Date.now() &&
+        matchesSession(r, rule) &&
+        (!snapshots.has(r.cinema_id) ||
+          snapshots.get(r.cinema_id).get(r.id)?.available === true);
       if (
         movie &&
         (!monitorEligible(JSON.parse(movie.data), rule) ||
-          (detail?.sessions &&
-            !detail.sessions.some(
-              (r) =>
-                Date.parse(r.starts_at) > Date.now() && matchesSession(r, rule),
-            )))
+          (detail?.sessions && !detail.sessions.some(eligible)))
       ) {
         await q(
           env,
@@ -349,10 +371,7 @@ async function deliver(env) {
         continue;
       }
       if (detail?.sessions) {
-        const matching = detail.sessions.filter(
-          (r) =>
-            Date.parse(r.starts_at) > Date.now() && matchesSession(r, rule),
-        );
+        const matching = detail.sessions.filter(eligible);
         if (matching.length !== detail.sessions.length) {
           e.body = sessionBody(
             detail.cinema || matching[0]?.cinema || "影院",
@@ -627,14 +646,18 @@ async function tick(env) {
   ).run();
   if (!lease.meta.changes) return { busy: true };
   const previousSuccess = await get(env, "last_success");
-  env.DELIVERY_DEADLINE = Date.now() + 60000;
   try {
     await seed(env);
-    await deliver(env);
     const paused = await get(env, "paused");
-    if (paused) return { paused };
+    if (paused) {
+      await deliver(env);
+      return { paused };
+    }
     const next = await get(env, "next_request", 0);
-    if (next > now()) return { cooldown: true, next };
+    if (next > now()) {
+      await deliver(env);
+      return { cooldown: true, next };
+    }
     // Allow ten seconds of runner-start jitter around the two-minute target.
     await set(env, "next_request", now() + CADENCE.cinemaCooldownSeconds);
     const checks = [];

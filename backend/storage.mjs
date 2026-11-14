@@ -107,6 +107,13 @@ export async function applyPreferences(env, prefs) {
         prefs.pushDevices.length
     )
       throw new Error("最多连接 8 台设备，设备编号不能重复");
+    if (
+      new Set(prefs.pushDevices.map((d) => d.registration)).size !==
+        prefs.pushDevices.length ||
+      new Set(prefs.pushDevices.map((d) => d.subscription?.endpoint)).size !==
+        prefs.pushDevices.length
+    )
+      throw new Error("设备注册标识和通知地址不能重复");
     devices = prefs.pushDevices.map((d) => {
       if (
         typeof d.id !== "string" ||
@@ -116,6 +123,7 @@ export async function applyPreferences(env, prefs) {
         !d.name.trim() ||
         d.name.length > 40 ||
         typeof d.registration !== "string" ||
+        !d.registration ||
         d.registration.length > 100
       )
         throw new Error("设备信息无效");

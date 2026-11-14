@@ -1,4 +1,5 @@
-import { api, rotateToken, deviceId } from "./client.mjs?v=companion-1";
+import { captureFocus, restoreFocus } from "./dom-state.mjs";
+import { api, rotateToken, deviceId } from "./client.mjs?v=audit-1";
 import {
   chinaDay,
   countdown,
@@ -7,6 +8,13 @@ import {
   matchesSession,
   monitorEligible,
 } from "./rules.mjs";
+function getLocal(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
 const esc = (s) =>
   String(s ?? "").replace(
     /[&<>"']/g,
@@ -28,7 +36,7 @@ const stamp = (t) =>
     : "尚无记录";
 const checked = (v) => (v ? "checked" : ""),
   selected = (v) => (v ? "selected" : "");
-export const browsing = {
+const browsingDefaults = () => ({
   scope: "all",
   sort: "release",
   month: "",
@@ -38,7 +46,33 @@ export const browsing = {
   eventMovie: "",
   eventStatus: "all",
   groupEvents: true,
-};
+});
+export const browsing = browsingDefaults();
+export function restoreBrowsing(value = {}) {
+  const defaults = browsingDefaults(),
+    next = { ...defaults };
+  if (value && typeof value === "object") {
+    for (const [key, allowed] of Object.entries({
+      scope: ["all", "week", "month", "undated"],
+      sort: ["release", "wish", "score"],
+      eventStatus: ["all", "unread", "pending", "sent", "cancelled"],
+    }))
+      if (allowed.includes(value[key])) next[key] = value[key];
+    for (const key of ["month", "calendarMonth"])
+      if (
+        typeof value[key] === "string" &&
+        /^\d{4}-(0[1-9]|1[0-2])$/.test(value[key])
+      )
+        next[key] = value[key];
+    if (typeof value.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.day))
+      next.day = value.day;
+    if (typeof value.eventMovie === "string" && /^\d+$/.test(value.eventMovie))
+      next.eventMovie = value.eventMovie;
+    for (const key of ["calendar", "groupEvents"])
+      if (typeof value[key] === "boolean") next[key] = value[key];
+  }
+  Object.assign(browsing, next);
+}
 let ctx,
   detailId = null,
   modalDirty = false,
@@ -120,10 +154,7 @@ export function onboarding(data) {
     ["手机确认实收", received],
     ["星标一部电影", data.movies.some((m) => m.active)],
   ];
-  if (
-    steps.every(([, done]) => done) &&
-    localStorage.getItem("polaris.guide-complete")
-  )
+  if (steps.every(([, done]) => done) && getLocal("polaris.guide-complete"))
     return "";
   return `<section class="onboarding"><div><span class="section-kicker">READY FOR YOUR NEXT FILM</span><strong>让雷达开始为你守候</strong></div><ol>${steps.map(([name, done], i) => `<li class="${done ? "done" : ""}"><span>${done ? "✓" : i + 1}</span>${name}</li>`).join("")}</ol><button class="secondary" ${steps.every(([, d]) => d) ? "data-guide-dismiss" : 'data-view="settings"'}>${steps.every(([, d]) => d) ? "完成并收起" : "继续设置 →"}</button></section>`;
 }
@@ -175,9 +206,14 @@ export function eventView(data) {
   const groups = [];
   for (const e of events) {
     const key = browsing.groupEvents
-      ? `${e.movie_id || e.kind}:${e.cinemaId || ""}:${Math.floor(e.created_at / 120)}:${e.cancelled ? "cancelled" : e.sent_at ? "sent" : "pending"}`
+      ? `${e.movie_id || e.kind}:${e.cinemaId || ""}:${e.cancelled ? "cancelled" : e.sent_at ? "sent" : "pending"}`
       : e.id;
-    let group = groups.find((g) => g.key === key);
+    let group = groups.find(
+      (g) =>
+        g.key === key &&
+        (!browsing.groupEvents ||
+          Math.abs(e.created_at - g.events[0].created_at) < 120),
+    );
     if (!group) {
       group = { key, events: [] };
       groups.push(group);
@@ -248,7 +284,7 @@ function detail(movie, data) {
         ...rule.formats,
       ]),
     ];
-  return `<div class="detail-heading"><span class="section-kicker">A STORY WORTH WAITING FOR</span><h2 id="detail-title">${esc(movie.name)}</h2><p>${esc(movie.release)} · ${esc(countdown(movie.release))}</p><button class="dialog-close secondary" data-close-detail aria-label="关闭电影详情">×</button></div><div class="detail-facts"><span>主演 <b>${esc(movie.actors || "资料待补充")}</b></span><span>猫眼评分 <b>${movie.score ? esc(movie.score) : "暂无"}</b></span><span>想看人数 <b>${Number(movie.wish || 0).toLocaleString()}</b></span></div><div class="detail-actions"><button class="primary" data-star="${esc(movie.id)}" ${movie.syncState === "saving" ? "disabled" : ""}>${movie.active ? "★ 已星标 · 点击停止" : "☆ 星标并监测"}</button><button class="secondary" data-copy-film="${esc(movie.id)}">复制电影链接</button></div>${filmStatus(movie, data)}<section class="detail-section"><h3>影院场次 <small>${matching.length} 场可售符合当前规则</small></h3><p class="note">以下是最近一次检查时观测到的场次；余票、票价和最终可售情况请以猫眼为准。</p>${data.cinemas
+  return `<div class="detail-heading"><span class="section-kicker">A STORY WORTH WAITING FOR</span><h2 id="detail-title">${esc(movie.name)}</h2><p>${esc(movie.release)} · ${esc(countdown(movie.release))}</p><button class="dialog-close secondary" data-close-detail aria-label="关闭电影详情">×</button></div><div class="detail-facts"><span>主演 <b>${esc(movie.actors || "资料待补充")}</b></span><span>猫眼评分 <b>${movie.score ? esc(movie.score) : "暂无"}</b></span><span>想看人数 <b>${Number(movie.wish || 0).toLocaleString()}</b></span></div><div class="detail-actions"><button class="primary" data-star="${esc(movie.id)}" ${movie.syncState === "saving" || (data.connected && !data.personalReady) ? "disabled" : ""}>${movie.active ? "★ 已星标 · 点击停止" : monitorEligible(movie, rule) ? "☆ 星标并监测" : "☆ 收藏这部电影"}</button><button class="secondary" data-copy-film="${esc(movie.id)}">复制电影链接</button></div><div class="detail-status">${filmStatus(movie, data)}</div><section class="detail-section"><h3>影院场次 <small>${matching.length} 场可售符合当前规则</small></h3><p class="note">以下是最近一次检查时观测到的场次；余票、票价和最终可售情况请以猫眼为准。</p>${data.cinemas
     .map((c, i) => {
       const sessions = rows.filter((r) => r.cinema_id === c.id),
         check = data.checks?.[i];
@@ -256,7 +292,7 @@ function detail(movie, data) {
     })
     .join(
       "",
-    )}</section><section class="detail-section"><h3>只为你想看的场次提醒</h3><p class="note">规则按北京时间匹配。留空表示不限；电影需要星标后才会监测。</p><form id="rule-form" data-movie="${esc(movie.id)}"><fieldset><legend>影院</legend>${data.cinemas.map((c) => `<label><input type="checkbox" name="cinemas" value="${esc(c.id)}" ${checked(rule.cinemas.includes(c.id))}> ${esc(c.short)}</label>`).join("")}</fieldset><fieldset><legend>制式／影厅关键词 · 任一匹配</legend>${formats.map((f) => `<label><input type="checkbox" name="formats" value="${esc(f)}" ${checked(rule.formats.includes(f))}> ${esc(f)}</label>`).join("")}<label class="rule-custom">其他关键词 <input name="customFormat" maxlength="32" placeholder="例如：激光"></label></fieldset><fieldset><legend>星期</legend>${[
+    )}</section><section class="detail-section"><h3>只为你想看的场次提醒</h3><p class="note">规则按北京时间匹配。留空表示不限；电影需要星标后才会监测。</p><form id="rule-form" data-movie="${esc(movie.id)}">${data.connected && !data.personalReady ? '<p class="note">正在同步原有规则，请稍候…</p>' : ""}<fieldset class="rule-body" ${data.connected && !data.personalReady ? "disabled" : ""}><fieldset><legend>影院</legend>${data.cinemas.map((c) => `<label><input type="checkbox" name="cinemas" value="${esc(c.id)}" ${checked(rule.cinemas.includes(c.id))}> ${esc(c.short)}</label>`).join("")}</fieldset><fieldset><legend>制式／影厅关键词 · 任一匹配</legend>${formats.map((f) => `<label><input type="checkbox" name="formats" value="${esc(f)}" ${checked(rule.formats.includes(f))}> ${esc(f)}</label>`).join("")}<label class="rule-custom">其他关键词 <input name="customFormat" maxlength="32" placeholder="例如：激光"></label></fieldset><fieldset><legend>星期</legend>${[
     [1, "一"],
     [2, "二"],
     [3, "三"],
@@ -271,7 +307,7 @@ function detail(movie, data) {
     )
     .join(
       "",
-    )}</fieldset><div class="rule-dates"><label>场次开始日期<input type="date" name="from" value="${rule.from}"></label><label>场次结束日期<input type="date" name="until" value="${rule.until}"></label><label>开始时间<input type="time" name="timeFrom" value="${rule.timeFrom}"></label><label>结束时间<input type="time" name="timeUntil" value="${rule.timeUntil}"></label></div><p class="note">结束时间早于开始时间表示跨午夜，如 22:00–02:00。</p><label class="continue-label">上映后继续监测至 <input type="date" name="continueUntil" value="${rule.continueUntil}" min="${chinaDay()}"></label><p class="note">留空仅提醒正式上映前的开票。填入日期后，包含该日期在内继续监测。</p><label><input type="checkbox" name="paused" ${checked(rule.paused)}> 暂停这部电影的提醒，保留星标</label><div class="actions"><button class="primary" type="submit">保存提醒规则</button><button class="secondary" type="button" data-reset-rule="${esc(movie.id)}">恢复默认规则</button></div><p class="form-feedback" role="status" id="rule-feedback"></p></form><p class="note">当前：${monitorEligible(movie, rule) ? (movie.active ? "按规则持续监测" : "尚未星标") : rule.paused ? "该片提醒已暂停" : "已超过监测日期，星标仍保留"}。修改规则不会补发已过去的开票事件；新出现或恢复可售的匹配场次会继续提醒。</p></section>`;
+    )}</fieldset><div class="rule-dates"><label>场次开始日期<input type="date" name="from" value="${rule.from}"></label><label>场次结束日期<input type="date" name="until" value="${rule.until}"></label><label>开始时间<input type="time" name="timeFrom" value="${rule.timeFrom}"></label><label>结束时间<input type="time" name="timeUntil" value="${rule.timeUntil}"></label></div><p class="note">结束时间早于开始时间表示跨午夜，如 22:00–02:00。</p><label class="continue-label">上映后继续监测至 <input type="date" name="continueUntil" value="${rule.continueUntil}"></label><p class="note">留空仅提醒正式上映前的开票。填入日期后，包含该日期在内继续监测。</p><label><input type="checkbox" name="paused" ${checked(rule.paused)}> 暂停这部电影的提醒，保留星标</label><div class="actions"><button class="primary" type="submit">保存提醒规则</button><button class="secondary" type="button" data-reset-rule="${esc(movie.id)}">恢复默认规则</button></div></fieldset><p class="form-feedback" role="status" id="rule-feedback"></p></form><p class="note">当前：${monitorEligible(movie, rule) ? (movie.active ? "按规则持续监测" : "尚未星标") : rule.paused ? "该片提醒已暂停" : "已超过监测日期，星标仍保留"}。修改规则不会补发已过去的开票事件；新出现或恢复可售的匹配场次会继续提醒。</p></section>`;
 }
 function openDetail(id) {
   const movie = get()?.movies.find((m) => m.id === id);
@@ -299,21 +335,42 @@ function closeDetail() {
 }
 export function updateDetail() {
   const dialog = document.querySelector("#movie-dialog");
+  if (!dialog?.open || !detailId) return;
+  const movie = get()?.movies.find((m) => m.id === detailId);
+  if (!movie) return;
   if (
-    !dialog?.open ||
-    !detailId ||
     modalDirty ||
     (dialog.contains(document.activeElement) &&
       document.activeElement.matches("input,select"))
-  )
+  ) {
+    const button = dialog.querySelector(".detail-actions [data-star]");
+    if (button) {
+      button.disabled =
+        movie.syncState === "saving" ||
+        (get().connected && !get().personalReady);
+      button.textContent = movie.active
+        ? "★ 已星标 · 点击停止"
+        : monitorEligible(movie, get().movieRules?.[movie.id])
+          ? "☆ 星标并监测"
+          : "☆ 收藏这部电影";
+    }
+    const status = dialog.querySelector(".detail-status");
+    if (status) status.innerHTML = filmStatus(movie, get());
     return;
-  const movie = get()?.movies.find((m) => m.id === detailId);
-  if (movie) {
-    const scroll = dialog.scrollTop;
-    dialog.innerHTML = detail(movie, get());
-    dialog.scrollTop = scroll;
   }
+  const scroll = dialog.scrollTop,
+    lists = [...dialog.querySelectorAll(".session-list")].map(
+      (el) => el.scrollTop,
+    ),
+    focus = captureFocus(dialog);
+  dialog.innerHTML = detail(movie, get());
+  restoreFocus(dialog, focus);
+  [...dialog.querySelectorAll(".session-list")].forEach(
+    (el, i) => (el.scrollTop = lists[i] || 0),
+  );
+  dialog.scrollTop = scroll;
 }
+
 async function action(button, work, message) {
   button.disabled = true;
   try {
@@ -408,7 +465,9 @@ export function installFeatures(context) {
       return;
     }
     if (b.hasAttribute("data-guide-dismiss")) {
-      localStorage.setItem("polaris.guide-complete", "1");
+      try {
+        localStorage.setItem("polaris.guide-complete", "1");
+      } catch {}
       ctx.rerender();
       return;
     }
@@ -545,13 +604,15 @@ export function installFeatures(context) {
             next = form.querySelector("#new-token").value.trim();
           await rotateToken(next, old || undefined);
           form.reset();
+          document.querySelector("#rotate-form")?.reset();
         },
         "密钥迁移成功，其他设备请改用新密钥",
       );
     }
   });
   let initialMovie = new URL(location.href).searchParams.get("movie"),
-    initialEvent = new URL(location.href).searchParams.get("event");
+    initialEvent = new URL(location.href).searchParams.get("event"),
+    scrolledToEvent = false;
   return {
     afterRender() {
       updateDetail();
@@ -560,11 +621,19 @@ export function installFeatures(context) {
           (el) => el.dataset.eventIds.split(",").includes(initialEvent),
         );
         if (match) {
-          initialEvent = null;
-          setTimeout(() => {
-            match.scrollIntoView({ block: "center" });
-            match.classList.add("linked-event");
-          }, 0);
+          match.classList.add("linked-event");
+          if (!scrolledToEvent)
+            requestAnimationFrame(() => {
+              const current = [
+                ...document.querySelectorAll("[data-event-ids]"),
+              ].find((el) =>
+                el.dataset.eventIds.split(",").includes(initialEvent),
+              );
+              if (current) {
+                current.scrollIntoView({ block: "center" });
+                scrolledToEvent = true;
+              }
+            });
         }
       }
       if (initialMovie && get()) {

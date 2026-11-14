@@ -1,4 +1,4 @@
-import { connected, api } from "./client.mjs?v=companion-1";
+import { connected, api } from "./client.mjs?v=audit-1";
 
 const registration =
   "serviceWorker" in navigator
@@ -29,7 +29,7 @@ function bytes(value) {
     (c) => c.charCodeAt(0),
   );
 }
-export async function enablePhonePush(name) {
+export async function enablePhonePush(name, { renew = false } = {}) {
   if (!connected()) throw new Error("请先在此页面连接 GitHub，再启用手机通知");
   const support = pushSupport();
   if (support.ios && !support.standalone)
@@ -44,25 +44,47 @@ export async function enablePhonePush(name) {
     throw new Error("尚未允许通知，请在系统通知设置中允许这个网页发送通知");
   await registration;
   const worker = await navigator.serviceWorker.ready;
-  const response = await fetch("./data/push-key.json", { cache: "no-store" });
+  const response = await fetch("./data/push-key.json", {
+    cache: "no-store",
+    signal: AbortSignal.timeout(15000),
+  });
   if (!response.ok) throw new Error("通知服务尚未就绪，请稍后刷新重试");
   const { publicKey } = await response.json();
   const existing = await worker.pushManager.getSubscription();
-  if (existing) await existing.unsubscribe();
-  const subscription = await worker.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: bytes(publicKey),
-  });
+  const wanted = bytes(publicKey),
+    current = existing?.options?.applicationServerKey;
+  const sameKey =
+    !current ||
+    (new Uint8Array(current).length === wanted.length &&
+      new Uint8Array(current).every((v, i) => v === wanted[i]));
+  let subscription = existing;
+  if (!existing || renew || !sameKey) {
+    if (existing) await existing.unsubscribe();
+    subscription = await worker.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: wanted,
+    });
+  }
   return api("push", {
     subscription: subscription.toJSON(),
     name,
     previousEndpoint: existing?.endpoint,
+    renew,
   });
 }
 export async function disablePhonePush() {
   const result = await api("push/remove", {});
-  const worker = await registration;
-  const subscription = await worker?.pushManager.getSubscription();
-  await subscription?.unsubscribe();
+  try {
+    const worker = await registration;
+    const subscription = await worker?.pushManager.getSubscription();
+    await subscription?.unsubscribe();
+  } catch {
+    window.dispatchEvent(
+      new CustomEvent("polaris-notice", {
+        detail:
+          "本机通知停用配置已保存；本地订阅清理暂未完成，后台应用后停止发送。",
+      }),
+    );
+  }
   return result;
 }
