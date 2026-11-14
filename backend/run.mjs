@@ -40,7 +40,7 @@ const files={'backend.enc.json':output.snapshot,'public.json':output.publicData}
 if(output.privateData)files['private.enc.json']=output.privateData;
 await persist(files);
 mkdirSync('docs/data',{recursive:true});writeFileSync('docs/data/state.json',JSON.stringify(output.publicData));
-const report={cinemasChecked:output.result.checks?.length||0,outcome:output.result.paused?'paused':output.result.cooldown?'cooldown':output.result.error?'error':output.result.busy?'busy':'checked',movies:output.publicData.movies.length,lastSuccess:output.publicData.lastSuccess,storageSaved:true};
+const report={cinemasChecked:output.result.checks?.length||0,catalogRequests:output.result.catalog?.requests||0,catalogLists:output.result.catalog?.lists||[],catalogMoviesUpdated:output.result.catalog?.movies||0,outcome:output.result.paused?'paused':output.result.cooldown?'cooldown':output.result.error?'error':output.result.busy?'busy':'checked',movies:output.publicData.movies.length,lastSuccess:output.publicData.lastSuccess,storageSaved:true};
 console.log(JSON.stringify(report));
 if(process.env.GITHUB_STEP_SUMMARY)writeFileSync(process.env.GITHUB_STEP_SUMMARY,'### Independent monitor\n\n```json\n'+JSON.stringify(report,null,2)+'\n```\n');
 if(output.result.error)process.exitCode=1;

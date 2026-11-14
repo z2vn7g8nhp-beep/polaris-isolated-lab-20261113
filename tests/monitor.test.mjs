@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import worker,{upcoming,parseSessions,CINEMAS} from '../backend/monitor.mjs';
+import {freshCatalog} from './catalog-fixture.mjs';
 function dbEnv(){
   const db=new DatabaseSync(':memory:');db.exec(readFileSync(new URL('../backend/schema.sql', import.meta.url),'utf8'));
   function stmt(sql,args=[]){return {bind(...v){return stmt(sql,v)},async first(){return db.prepare(sql).get(...args)||null},async all(){return {results:db.prepare(sql).all(...args)}},async run(){const r=db.prepare(sql).run(...args);return {meta:{changes:Number(r.changes)}}}};}
@@ -11,7 +12,7 @@ function dbEnv(){
 const movie={id:111,nm:'测试影片',rt:'2030-10-01',globalReleased:false,img:'https://example.com/poster.jpg'};
 function fixture(available=1){return {showData:{cinemaId:25769,movies:[{...movie,shows:[{showDate:'2030-09-20',plist:[{seqNo:'seq1',dt:'2030-09-20',tm:'19:00',th:'IMAX厅',tp:'IMAX',enterShowSeat:available,forbiddenTip:'',saleDate:''}]}]}]}}}
 async function call(env,path,body){const r=await worker.fetch(new Request('https://radar.test/api/'+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)}),env,{});return {status:r.status,data:await r.json()}}
-async function setup(){const env=dbEnv();await call(env,'state');env.db.prepare('INSERT INTO radar_movies VALUES (?,?,?)').run('111',JSON.stringify(movie),1);await call(env,'star',{id:'111',active:true});env.db.prepare('INSERT INTO radar_kv VALUES (?,?)').run('coming_ids',JSON.stringify(['111']));return env}
+async function setup(){const env=dbEnv();await call(env,'state');env.db.prepare('INSERT INTO radar_movies VALUES (?,?,?)').run('111',JSON.stringify(movie),1);await call(env,'star',{id:'111',active:true});env.db.prepare('INSERT INTO radar_kv VALUES (?,?)').run('coming_ids',JSON.stringify(['111']));freshCatalog(env);return env}
 function cooldownOff(env){env.db.prepare("DELETE FROM radar_kv WHERE key='next_request'").run()}
 
 test('release date takes priority, premieres remain upcoming until release day',()=>{assert.equal(upcoming({...movie,globalReleased:true},'2030-09-20'),true);assert.equal(upcoming(movie,'2030-10-01'),false);assert.equal(upcoming({globalReleased:false},'2030-10-01'),true)});
@@ -36,5 +37,18 @@ test('new sessions and observable sale batches notify again, while stable states
     extra=true;cooldownOff(env);await call(env,'tick',{});assert.equal(count(),2);
     batch='another-sale-batch';cooldownOff(env);await call(env,'tick',{});assert.equal(count(),3);
     released=true;batch='after-release';cooldownOff(env);await call(env,'tick',{});assert.equal(count(),3);
+  }finally{globalThis.fetch=original;env.db.close()}
+});
+
+test('overdue catalogue work cannot bypass manual pause or a transient source backoff',async()=>{
+  const env=await setup(),original=globalThis.fetch;let calls=0;
+  env.db.prepare("UPDATE radar_kv SET value='0' WHERE key='coming_updated'").run();
+  globalThis.fetch=async()=>{calls++;return new Response('',{status:503})};
+  try{
+    await call(env,'pause',{});
+    assert.ok((await call(env,'tick',{})).data.paused);assert.equal(calls,0);
+    await call(env,'resume',{});
+    assert.ok((await call(env,'tick',{})).data.error);assert.equal(calls,1);
+    assert.equal((await call(env,'tick',{})).data.cooldown,true);assert.equal(calls,1);
   }finally{globalThis.fetch=original;env.db.close()}
 });

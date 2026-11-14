@@ -56,7 +56,7 @@ export async function applyPreferences(env,prefs) {
   set(env,'preferences_revision',prefs.revision);return true;
 }
 export function publicView(state) {
-  return {movies:state.movies.map(({active,...movie})=>movie),cinemas:state.cinemas,
+  return {cadence:state.cadence,releasedUpdated:state.releasedUpdated,movies:state.movies.map(({active,...movie})=>movie),cinemas:state.cinemas,
     lastSuccess:state.lastSuccess,lastError:state.lastError,checks:state.checks,
     catalogUpdated:state.catalogUpdated,comingTotal:state.comingTotal,comingSourceReady:state.comingSourceReady,comingUpdated:state.comingUpdated,schedule:{provider:'github-actions',frequency:'five_minutes'}};
 }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {vapidKeys,validateSubscription,sendPush} from '../backend/push.mjs';
 import webpush from 'web-push';
+import {freshCatalog} from './catalog-fixture.mjs';
 import {dbEnv,call,applyPreferences} from '../backend/storage.mjs';
 const subscription={endpoint:'https://web.push.apple.com/test-only',keys:{p256dh:vapidKeys('test-device').publicKey,auth:Buffer.alloc(16,2).toString('base64url')}};
 function environment(){const e=dbEnv();e.db.exec(readFileSync(new URL('../backend/schema.sql',import.meta.url),'utf8'));return e}
@@ -32,6 +33,7 @@ test('expired phone subscription is cleared, queued alerts retained, and later e
   const movie={id:111,nm:'新片',rt:'2030-10-01',globalReleased:false};
   e.db.prepare('INSERT INTO radar_movies VALUES (?,?,?)').run('111',JSON.stringify(movie),1);
   e.db.prepare('INSERT INTO radar_kv VALUES (?,?)').run('coming_ids',JSON.stringify(['111']));
+  freshCatalog(e);
   const prefs={revision:'1',stars:['111'],pushSubscription:subscription,notificationMode:'push',barkKey:'test_only_bark_key'};
   await applyPreferences(e,prefs);
   e.PUSH_SEND=async()=>{throw Object.assign(new Error('expired'),{statusCode:410})};

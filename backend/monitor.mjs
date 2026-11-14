@@ -1,4 +1,5 @@
 import {sendPush,validateSubscription} from "./push.mjs";
+export const CADENCE=Object.freeze({cinemaMinutes:5,comingListMinutes:30,releasedListMinutes:120,detailsMinAgeMinutes:60,batchSize:12,maxCatalogRequests:2,maxRequestsPerRun:4});
 const HTML = "__HTML__";
 import SEED from "../bootstrap/movies.json" with { type: "json" };
 export const CINEMAS = [
@@ -51,7 +52,6 @@ async function seed(env){
   for(let i=0;i<SEED.length;i+=40)await env.DB.batch(SEED.slice(i,i+40).map(m=>q(env,'INSERT OR IGNORE INTO radar_movies VALUES (?,?,?)',String(m.id),JSON.stringify(m),now())));
   await set(env,'seed_count',SEED.length);await set(env,'seeded',true);
   if(!await get(env,'catalog_updated'))await set(env,'catalog_updated',now());
-  if(!await get(env,'catalog_due'))await set(env,'catalog_due',now()+6*3600);
 }
 async function crypt(env,value,decrypt=false){
   if(!env.BARK_ENCRYPTION_KEY)throw new Error('服务端加密密钥未配置');
@@ -124,27 +124,53 @@ async function ingestCinema(env,data,cinema){
   await set(env,'cinema_'+cinema.id,{checked:now(),movies:movies.length,sessions:rows.length});
   return {cinema:cinema.short,movies:movies.length,sessions:rows.length,newNotifications:groups.size};
 }
-export async function updateCatalog(env){
-  let job=await get(env,'catalog_job');
-  const needsComing=(await get(env,'coming_ids'))===null;
-  // Older snapshots may have an in-flight page job but no canonical ID list.
-  if(needsComing)job=null;
-  if(!job){
-    const which=needsComing?'upcoming':await get(env,'catalog_next','upcoming');
-    const data=await source(which==='upcoming'?'comingList?ci=42&token=&limit=12':'movieOnInfoList?ci=42');
-    const list=which==='upcoming'?data.coming:data.movieList;
-    if(!Array.isArray(list)||!Array.isArray(data.movieIds))throw new RiskError('片库响应异常，已暂停以免重复请求');
-    if(list.length)await env.DB.batch(movieStatements(env,list));
-    if(which==='upcoming'){await set(env,'coming_ids',data.movieIds.map(String));await set(env,'coming_updated',now())}
-    const loaded=new Set(list.map(m=>String(m.id)));
-    job={which,remaining:data.movieIds.filter(id=>!loaded.has(String(id)))};
-  }else{
-    const ids=job.remaining.slice(0,12);
-    if(ids.length){const data=await source('moreComingList?ci=42&token=&movieIds='+ids.join(','));if(!Array.isArray(data.coming)||data.coming.length!==ids.length)throw new Error('片库补齐数据不完整，稍后重试');await env.DB.batch(movieStatements(env,data.coming));job.remaining=job.remaining.slice(12);}
+export async function updateCatalog(env,at=now()){
+  const known=new Map((await q(env,'SELECT id,data FROM radar_movies').all()).results.map(row=>[row.id,JSON.parse(row.data)]));
+  const refreshed=await get(env,'catalog_refreshed',{});
+  let coming=await get(env,'coming_ids'),released=await get(env,'released_ids');
+  const due=[];
+  if(coming===null||(await get(env,'coming_updated',0))+CADENCE.comingListMinutes*60<=at)due.push('upcoming');
+  if(released===null||(await get(env,'released_updated',0))+CADENCE.releasedListMinutes*60<=at)due.push('released');
+  const result={requests:0,lists:[],movies:0};
+  async function save(movies){
+    if(!movies.length)return;
+    const merged=movies.map(movie=>({...known.get(String(movie.id)),...movie}));
+    await env.DB.batch(movieStatements(env,merged));
+    for(const movie of merged){known.set(String(movie.id),movie);refreshed[String(movie.id)]=at;}
+    await set(env,'catalog_refreshed',refreshed);
+    await set(env,'catalog_updated',at);
+    result.movies+=movies.length;
   }
-  if(job.remaining.length)await set(env,'catalog_job',job);
-  else{await set(env,'catalog_job',null);await set(env,'catalog_next',job.which==='upcoming'?'released':'upcoming');await set(env,'catalog_updated',now());await set(env,'catalog_due',now()+6*3600);}
-  return {catalog:true,remaining:job.remaining.length};
+  if(due.length){
+    const turn=await get(env,'catalog_list_turn','upcoming');
+    const which=due.includes(turn)?turn:due[0];
+    const data=await source(which==='upcoming'?'comingList?ci=42&token=&limit=12':'movieOnInfoList?ci=42');
+    result.requests++;
+    const movies=which==='upcoming'?data.coming:data.movieList;
+    if(!Array.isArray(movies)||!Array.isArray(data.movieIds)||data.movieIds.some(id=>!/^\d+$/.test(String(id))))throw new RiskError('片库响应异常，已暂停以免重复请求');
+    const ids=data.movieIds.map(String),allowed=new Set(ids);
+    if(movies.some(movie=>!allowed.has(String(movie.id))))throw new RiskError('片库编号不匹配，已暂停访问');
+    await save(movies);
+    if(which==='upcoming'){coming=ids;await set(env,'coming_ids',ids);await set(env,'coming_updated',at)}
+    else{released=ids;await set(env,'released_ids',ids);await set(env,'released_updated',at)}
+    await set(env,'catalog_list_turn',which==='upcoming'?'released':'upcoming');
+    result.lists.push(which);
+  }
+  // Use catalogue-specific ages. Cinema summaries do not refresh wish counts.
+  const roster=[...new Set([...(coming||[]),...(released??[...known.keys()])])];
+  const stale=roster.filter(id=>!refreshed[id]||refreshed[id]+CADENCE.detailsMinAgeMinutes*60<=at)
+    .sort((a,b)=>(refreshed[a]||0)-(refreshed[b]||0));
+  const batch=stale.slice(0,CADENCE.batchSize);
+  if(batch.length&&result.requests<CADENCE.maxCatalogRequests){
+    const data=await source('moreComingList?ci=42&token=&movieIds='+batch.join(','));
+    result.requests++;
+    const ids=new Set(batch);
+    if(!Array.isArray(data.coming)||data.coming.length!==batch.length||new Set(data.coming.map(m=>String(m.id))).size!==batch.length||data.coming.some(m=>!ids.has(String(m.id))))throw new Error('片库补齐数据不完整，稍后重试');
+    await save(data.coming);
+  }
+  // Old snapshots contain a six-hour alternating pagination job; it is obsolete.
+  await set(env,'catalog_job',null);
+  return result;
 }
 async function tick(env){
   const lease=await q(env,'UPDATE radar_lock SET expires=? WHERE id=1 AND expires<?',now()+100,now()).run();
@@ -158,10 +184,8 @@ async function tick(env){
     for(const cinema of CINEMAS){
       checks.push(await ingestCinema(env,await source('cinemaDetail?cinemaId='+cinema.id),cinema));
     }
-    const catalogJob=await get(env,'catalog_job');
-    const catalogDue=(await get(env,'catalog_due',now()+6*3600))<now();
-    if(catalogJob||catalogDue||(await get(env,'coming_ids'))===null)await updateCatalog(env);
-    const result={cinema:'两家影院',newNotifications:checks.reduce((n,c)=>n+c.newNotifications,0),checks};
+    const catalog=await updateCatalog(env);
+    const result={cinema:'两家影院',newNotifications:checks.reduce((n,c)=>n+c.newNotifications,0),checks,catalog};
     await set(env,'last_success',now());await set(env,'last_error',null);await set(env,'failures',0);
     await deliver(env);return result;
   }catch(error){
@@ -178,10 +202,11 @@ async function tick(env){
 }
 async function state(env){
   await seed(env);
+  const refreshed=await get(env,'catalog_refreshed',{});
   const comingIds=await get(env,'coming_ids');const comingOrder=new Map((comingIds||[]).map((id,i)=>[String(id),i]));
-  const movies=(await q(env,'SELECT m.*,s.active FROM radar_movies m LEFT JOIN radar_stars s ON m.id=s.movie_id').all()).results.map(r=>{const m=JSON.parse(r.data);return {id:String(m.id),name:m.nm,img:m.img,release:m.rt||m.comingTitle||'档期待定',upcoming:upcoming(m),coming:comingIds===null?upcoming(m):comingOrder.has(String(m.id)),comingOrder:comingOrder.get(String(m.id))??99999,comingTitle:m.comingTitle||'',wish:Number(m.wish)||0,score:Number(m.sc)||0,actors:m.star||'',active:r.active===1};}).sort((a,b)=>Number(b.upcoming)-Number(a.upcoming)||b.wish-a.wish);
+  const movies=(await q(env,'SELECT m.*,s.active FROM radar_movies m LEFT JOIN radar_stars s ON m.id=s.movie_id').all()).results.map(r=>{const m=JSON.parse(r.data);return {id:String(m.id),name:m.nm,img:m.img,release:m.rt||m.comingTitle||'档期待定',upcoming:upcoming(m),coming:comingIds===null?upcoming(m):comingOrder.has(String(m.id)),comingOrder:comingOrder.get(String(m.id))??99999,comingTitle:m.comingTitle||'',detailsUpdated:refreshed[String(m.id)]||null,wish:Number(m.wish)||0,score:Number(m.sc)||0,actors:m.star||'',active:r.active===1};}).sort((a,b)=>Number(b.upcoming)-Number(a.upcoming)||b.wish-a.wish);
   const events=(await q(env,'SELECT id,movie_id,kind,title,body,created_at,sent_at,attempts,cancelled FROM radar_events ORDER BY created_at DESC LIMIT 60').all()).results;
-  return {movies,events,comingTotal:comingIds?.length??movies.filter(m=>m.coming).length,comingSourceReady:comingIds!==null,comingUpdated:await get(env,'coming_updated'),pushConfigured:!!await get(env,'push_subscription'),pushError:await get(env,'push_error'),notificationMode:await notificationMode(env),cinemas:CINEMAS,paused:await get(env,'paused'),lastSuccess:await get(env,'last_success'),lastError:await get(env,'last_error'),nextRequest:await get(env,'next_request'),barkConfigured:!!await get(env,'bark'),barkError:await get(env,'bark_error'),catalogUpdated:await get(env,'catalog_updated'),catalogJob:await get(env,'catalog_job'),checks:await Promise.all(CINEMAS.map(c=>get(env,'cinema_'+c.id))),schedule:await get(env,'schedule',null),schedulerHeartbeat:await get(env,'scheduler_heartbeat',null)};
+  return {movies,events,cadence:CADENCE,releasedUpdated:await get(env,'released_updated'),comingTotal:comingIds?.length??movies.filter(m=>m.coming).length,comingSourceReady:comingIds!==null,comingUpdated:await get(env,'coming_updated'),pushConfigured:!!await get(env,'push_subscription'),pushError:await get(env,'push_error'),notificationMode:await notificationMode(env),cinemas:CINEMAS,paused:await get(env,'paused'),lastSuccess:await get(env,'last_success'),lastError:await get(env,'last_error'),nextRequest:await get(env,'next_request'),barkConfigured:!!await get(env,'bark'),barkError:await get(env,'bark_error'),catalogUpdated:await get(env,'catalog_updated'),catalogJob:await get(env,'catalog_job'),checks:await Promise.all(CINEMAS.map(c=>get(env,'cinema_'+c.id))),schedule:await get(env,'schedule',null),schedulerHeartbeat:await get(env,'scheduler_heartbeat',null)};
 }
 async function api(req,env,path){
   if(req.method==='GET'&&path==='/api/state')return json(await state(env));
