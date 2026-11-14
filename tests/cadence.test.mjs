@@ -9,40 +9,47 @@ function get(e,key){return JSON.parse(e.db.prepare('SELECT value FROM radar_kv W
 function movie(id,wish=100){return {id:Number(id),nm:'电影'+id,rt:'2030-12-01',wish}}
 const response=data=>new Response(JSON.stringify(data),{headers:{'Content-Type':'application/json'}});
 
-test('list clocks are independent, both overdue lists get a turn, and catalogue requests stay within budget',async()=>{
-  const e=setup(),at=1800000000,original=globalThis.fetch,calls=[];
-  for(const id of ['111','222','333'])e.db.prepare('INSERT INTO radar_movies VALUES (?,?,?)').run(id,JSON.stringify(movie(id)),at);
-  put(e,'coming_ids',['111','333']);put(e,'released_ids',['222']);
-  put(e,'coming_updated',at-31*60);put(e,'released_updated',at-121*60);put(e,'catalog_job',{which:'upcoming',remaining:[111]});
+test('five-minute cycle refreshes both lists, all film details and new releases rather than only twelve films',async()=>{
+  const e=setup(),at=1800000000,original=globalThis.fetch,ids=Array.from({length:185},(_,i)=>String(100+i));let wish=100,calls=[];
+  for(const id of ids)e.db.prepare('INSERT INTO radar_movies VALUES (?,?,?)').run(id,JSON.stringify(movie(id,1)),at+1000);
   globalThis.fetch=async url=>{
     const u=new URL(url);calls.push(u);
-    if(u.pathname.endsWith('/comingList'))return response({movieIds:[111,333,444],coming:[movie(111,999)]});
-    if(u.pathname.endsWith('/movieOnInfoList'))return response({movieIds:[222],movieList:[movie(222)]});
-    return response({coming:u.searchParams.get('movieIds').split(',').map(id=>movie(id))});
+    if(u.pathname.endsWith('/comingList'))return response({movieIds:[...ids.slice(12),'999'],coming:ids.slice(12,24).map(id=>movie(id,wish))});
+    if(u.pathname.endsWith('/movieOnInfoList'))return response({movieIds:ids.slice(0,12),movieList:ids.slice(0,12).map(id=>movie(id,wish))});
+    const batch=u.searchParams.get('movieIds').split(',');assert.ok(batch.length<=12);
+    return response({coming:batch.map(id=>movie(id,wish))});
   };
   try{
-    const first=await updateCatalog(e,at);assert.equal(first.requests,2);assert.deepEqual(first.lists,['upcoming']);assert.equal(first.movies,4);
-    assert.deepEqual(get(e,'coming_ids'),['111','333','444']);assert.equal(get(e,'coming_updated'),at);assert.equal(get(e,'catalog_job'),null);
-    const second=await updateCatalog(e,at+300);assert.equal(second.requests,1);assert.deepEqual(second.lists,['released']);
-    const third=await updateCatalog(e,at+600);assert.equal(third.requests,0);
-    const fourth=await updateCatalog(e,at+31*60);assert.equal(fourth.requests,1);assert.deepEqual(fourth.lists,['upcoming']);
-    const fifth=await updateCatalog(e,at+61*60);assert.equal(fifth.requests,2);assert.deepEqual(fifth.lists,['upcoming']);
-    assert.equal(get(e,'catalog_refreshed')['333'],at+61*60);
-    for(const result of [first,second,third,fourth,fifth])assert.ok(result.requests<=CADENCE.maxCatalogRequests);
+    const first=await updateCatalog(e,at);assert.deepEqual(first.lists,['upcoming','released']);assert.equal(first.complete,true);
+    assert.equal(first.movies,186);assert.ok(first.requests<=CADENCE.maxCatalogRequests);
+    assert.equal(get(e,'catalog_completed'),at);assert.equal(get(e,'catalog_next_refresh'),at+300);
+    assert.equal(get(e,'catalog_refreshed')['999'],at);assert.equal(get(e,'catalog_refreshed')[ids[0]],at);
+    const count=calls.length;assert.equal((await updateCatalog(e,at+120)).requests,0);assert.equal(calls.length,count);
+    wish=200;const second=await updateCatalog(e,at+300);assert.equal(second.complete,true);assert.equal(second.movies,186);
+    assert.ok(e.db.prepare('SELECT data FROM radar_movies').all().every(row=>JSON.parse(row.data).wish===200));
     assert.ok(calls.every(u=>u.hostname==='m.maoyan.com'));
   }finally{globalThis.fetch=original;e.db.close()}
 });
 
-test('detail rotation is limited to twelve films and ignores cinema-only modification times',async()=>{
-  const e=setup(),at=1800000000,ids=Array.from({length:25},(_,i)=>String(100+i)),original=globalThis.fetch,batches=[];
-  for(const id of ids)e.db.prepare('INSERT INTO radar_movies VALUES (?,?,?)').run(id,JSON.stringify(movie(id)),at+1000);
-  put(e,'coming_ids',ids);put(e,'released_ids',[]);put(e,'coming_updated',at);put(e,'released_updated',at);
-  globalThis.fetch=async url=>{const batch=new URL(url).searchParams.get('movieIds').split(',');batches.push(batch);return response({coming:batch.map(id=>movie(id,200))})};
+test('two-minute trigger jitter does not turn the five-minute catalogue clock into a six-minute clock',async()=>{
+  const e=setup(),at=1800000000,original=globalThis.fetch;
+  globalThis.fetch=async url=>new URL(url).pathname.endsWith('/comingList')?response({movieIds:[111],coming:[movie(111)]}):response({movieIds:[],movieList:[]});
   try{
-    assert.equal((await updateCatalog(e,at)).requests,1);assert.equal(batches[0].length,12);
-    await updateCatalog(e,at+300);assert.equal(batches[1].length,12);assert.equal(new Set([...batches[0],...batches[1]]).size,24);
-    await updateCatalog(e,at+600);assert.equal(batches[2].length,1);
-    const idle=await updateCatalog(e,at+900);assert.equal(idle.requests,0);
-    assert.equal(get(e,'catalog_refreshed')[ids[0]],at);
+    await updateCatalog(e,at);await updateCatalog(e,at+360);
+    assert.equal(get(e,'catalog_next_refresh'),at+600);
+    assert.equal((await updateCatalog(e,at+599)).requests,0);
+    assert.equal((await updateCatalog(e,at+600)).complete,true);
+  }finally{globalThis.fetch=original;e.db.close()}
+});
+
+test('request cap retains a partial catalogue queue and resumes it without fetching completed batches again',async()=>{
+  const e=setup(),at=1800000000,ids=Array.from({length:245},(_,i)=>String(100+i)),original=globalThis.fetch,seen=[];
+  for(const id of ids)e.db.prepare('INSERT INTO radar_movies VALUES (?,?,?)').run(id,JSON.stringify(movie(id)),at+1000);
+  put(e,'catalog_cycle',{scheduled:at,phase:'details',remaining:ids});
+  globalThis.fetch=async url=>{const batch=new URL(url).searchParams.get('movieIds').split(',');seen.push(...batch);return response({coming:batch.map(id=>movie(id,200))})};
+  try{
+    const first=await updateCatalog(e,at);assert.equal(first.requests,20);assert.equal(first.complete,false);assert.equal(first.pending,5);
+    const second=await updateCatalog(e,at+120);assert.equal(second.requests,1);assert.equal(second.complete,true);
+    assert.equal(seen.length,245);assert.equal(new Set(seen).size,245);assert.equal(get(e,'catalog_cycle'),null);
   }finally{globalThis.fetch=original;e.db.close()}
 });

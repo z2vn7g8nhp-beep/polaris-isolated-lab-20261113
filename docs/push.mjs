@@ -1,4 +1,4 @@
-import {connected,api} from './client.mjs?v=two-minute-1';
+import {connected,api} from './client.mjs?v=fast-five-1';
 
 const registration=('serviceWorker' in navigator)?navigator.serviceWorker.register('./sw.js',{scope:'./'}):Promise.resolve(null);
 registration.catch(()=>{});

@@ -18,3 +18,13 @@ function heading(date){
   const current=new Date(Date.now()+8*3600e3).getUTCFullYear();
   return new Intl.DateTimeFormat('zh-CN',{...(Number(date.slice(0,4))!==current?{year:'numeric'}:{}),month:'long',day:'numeric',weekday:'short',timeZone:'Asia/Shanghai'}).format(value);
 }
+export function posterUrl(value){
+  try{
+    const url=new URL(value);
+    if(!['https:','http:'].includes(url.protocol))return '';
+    url.protocol='https:';
+    if(/(^|\.)pipi\.cn$/.test(url.hostname))return url.origin+url.pathname+'?imageMogr2/thumbnail/360x540%3E/quality/75';
+    if(/(^|\.)meituan\.net$/.test(url.hostname))return url.origin+url.pathname.replace('/w.h/','/').replace(/@.*$/,'')+'@360w_540h_1e_1c';
+    return url.href;
+  }catch{return ''}
+}

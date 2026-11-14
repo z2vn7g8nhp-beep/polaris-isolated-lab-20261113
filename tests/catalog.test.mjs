@@ -11,7 +11,7 @@ test('coming classification uses Maoyan membership rather than only a future rel
   const original=globalThis.fetch;
   globalThis.fetch=async url=>{
     const parsed=new URL(url);
-    const data=parsed.pathname.endsWith('/comingList')?{coming:[{id:992,nm:'猫眼待映',rt:'2030-12-01',wish:5}],movieIds:[992]}:
+    const data=parsed.pathname.endsWith('/comingList')?{coming:[{id:992,nm:'猫眼待映',rt:'2030-12-01',wish:5}],movieIds:[992]}:parsed.pathname.endsWith('/movieOnInfoList')?{movieList:[],movieIds:[]}:
       {coming:parsed.searchParams.get('movieIds').split(',').map(id=>JSON.parse(e.db.prepare('SELECT data FROM radar_movies WHERE id=?').get(id).data))};
     return new Response(JSON.stringify(data),{headers:{'Content-Type':'application/json'}});
   };
