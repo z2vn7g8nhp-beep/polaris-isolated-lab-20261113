@@ -1,5 +1,5 @@
 import { captureFocus, restoreFocus } from "./dom-state.mjs";
-import { api, rotateToken, deviceId } from "./client.mjs?v=audit-1";
+import { api, rotateToken, deviceId } from "./client.mjs?v=calm-1";
 import {
   chinaDay,
   countdown,
@@ -103,7 +103,7 @@ export function libraryControls(data) {
     )
     .join(
       "",
-    )}</div><div class="discovery-options"><label>月份 <select id="month-filter"><option value="">不限月份</option>${months.map((v) => `<option ${selected(v === browsing.month)}>${v}</option>`).join("")}</select></label><label>排序 <select id="sort-filter">${[
+    )}</div><div class="discovery-options"><label><span class="filter-label">月份</span> <select id="month-filter"><option value="">不限月份</option>${months.map((v) => `<option ${selected(v === browsing.month)}>${v}</option>`).join("")}</select></label><label><span class="filter-label">排序</span> <select id="sort-filter">${[
     ["release", "上映日期"],
     ["wish", "想看热度"],
     ["score", "评分优先"],
@@ -143,7 +143,7 @@ export function filmStatus(movie, data) {
     ),
     available = sessions.filter((r) => r.available).length;
   const rule = data.movieRules?.[movie.id];
-  return `<div class="film-status"><span>${esc(countdown(movie.release))}</span><span>${rule?.paused ? "提醒已暂停" : available ? `已观测到 ${available} 场可售` : data.checks?.some(Boolean) ? "暂未观测到可售" : "场次尚未检查"}</span></div>${movie.active || ["saving", "pending", "error"].includes(movie.syncState) ? `<small class="save-state ${movie.syncState === "error" ? "save-error" : ""}">${{ saving: "正在保存星标…", pending: "已保存 · 等待后台应用", error: "保存失败，可重试", applied: "后台已应用" }[movie.syncState] || "星标已保存"}${movie.syncState === "error" ? ` <button class="text-button" data-retry-star="${esc(movie.id)}">重试</button>` : ""}</small>` : ""}`;
+  return `<div class="film-status"><span>${rule?.paused ? "提醒已暂停" : available ? `已观测到 ${available} 场可售` : data.checks?.some(Boolean) ? "暂未观测到可售" : "场次尚未检查"}</span></div>${["saving", "pending", "error"].includes(movie.syncState) ? `<small class="save-state ${movie.syncState === "error" ? "save-error" : ""}">${{ saving: "正在保存星标…", pending: "已保存 · 等待后台应用", error: "保存失败，可重试", applied: "后台已应用" }[movie.syncState] || "星标已保存"}${movie.syncState === "error" ? ` <button class="text-button" data-retry-star="${esc(movie.id)}">重试</button>` : ""}</small>` : ""}`;
 }
 export function onboarding(data) {
   const tests = data.requestResult,
@@ -156,7 +156,7 @@ export function onboarding(data) {
   ];
   if (steps.every(([, done]) => done) && getLocal("polaris.guide-complete"))
     return "";
-  return `<section class="onboarding"><div><span class="section-kicker">READY FOR YOUR NEXT FILM</span><strong>让雷达开始为你守候</strong></div><ol>${steps.map(([name, done], i) => `<li class="${done ? "done" : ""}"><span>${done ? "✓" : i + 1}</span>${name}</li>`).join("")}</ol><button class="secondary" ${steps.every(([, d]) => d) ? "data-guide-dismiss" : 'data-view="settings"'}>${steps.every(([, d]) => d) ? "完成并收起" : "继续设置 →"}</button></section>`;
+  return `<section class="onboarding"><div><strong>首次设置</strong></div><ol>${steps.map(([name, done], i) => `<li class="${done ? "done" : ""}"><span>${done ? "✓" : i + 1}</span>${name}</li>`).join("")}</ol><button class="secondary" ${steps.every(([, d]) => d) ? "data-guide-dismiss" : 'data-view="settings"'}>${steps.every(([, d]) => d) ? "完成并收起" : "继续设置 →"}</button></section>`;
 }
 function health(data) {
   const now = Date.now() / 1000,
@@ -164,7 +164,7 @@ function health(data) {
     success = history.filter((h) => h.success),
     intervals = success.slice(1).map((h, i) => (h.at - success[i].at) / 60),
     max = intervals.length ? Math.max(...intervals) : null;
-  return `<section class="section health-panel"><span class="section-kicker">THE RADAR, IN REAL TIME</span><h2>监测健康</h2><p>展示真实观测时间；配置保存、任务排队与检查成功分别记录。</p><div class="health-cinemas">${data.cinemas
+  return `<section class="section health-panel"><h2>监测健康</h2><p>展示真实观测时间；配置保存、任务排队与检查成功分别记录。</p><div class="health-cinemas">${data.cinemas
     .map((c, i) => {
       const check = data.checks?.[i],
         age = check
@@ -189,7 +189,7 @@ export function settingsExtras(data) {
     devices = data.pushDevices || [],
     test = data.requestResult,
     received = data.receivedTest?.id === test?.id;
-  return `${onboarding(data)}<section class="section"><span class="section-kicker">YOUR CONNECTED SCREENS</span><h2>通知设备</h2><p>最多连接 8 台设备。请在每台设备上打开网站并启用通知；每台设备独立测试、命名和移除。</p>${devices.map((d) => `<div class="device-row"><div><strong>${esc(d.name)} ${d.id === own ? "<small>本机</small>" : ""}</strong><p>${esc(d.error || "已登记")}${d.lastSuccess ? " · 最近交给推送服务 " + stamp(d.lastSuccess) : ""}</p></div><div class="actions"><button class="secondary" data-device-test="${esc(d.id)}">测试</button><button class="secondary" data-device-rename="${esc(d.id)}">命名</button><button class="secondary" data-device-remove="${esc(d.id)}">移除</button></div></div>`).join("") || `<p class="note">${data.hasLegacyPush ? "原有手机通知仍然保留。在本机重新启用后，可继续添加其他设备。" : "还没有登记多设备通知。"}</p>`}${test ? `<div class="test-result"><strong>${test.ok ? "推送服务已接收测试请求" : "测试发送失败"}</strong><p>${test.ok ? "服务接受请求不等于手机实际收到。请查看目标设备通知，再手动确认。" : esc(test.message)}</p>${test.ok ? `<button class="secondary" data-test-received="${esc(test.id)}" ${received ? "disabled" : ""}>${received ? "已确认实际收到" : "我已在手机收到这条测试"}</button>` : ""}</div>` : ""}</section>${health(data)}<section class="section"><span class="section-kicker">KEEP YOUR JOURNAL WITH YOU</span><h2>更换密钥，迁移配置</h2><p>用旧密钥解密原配置，再用新密钥重新加密。星标、规则、设备和已读记录一起保留；旧密钥即使已过期，只要原字符串仍在，也能用于解密。</p><form id="rotate-form"><label class="note" for="old-token">原来的 GitHub 密钥（留空使用本机当前密钥）</label><input id="old-token" type="password" autocomplete="off" placeholder="旧 github_pat_…"><label class="note" for="new-token">新 GitHub 密钥 · 本仓库 Contents / Actions 读写权限</label><input id="new-token" type="password" autocomplete="off" required placeholder="新 github_pat_…"><div class="actions"><button class="primary" type="submit">迁移到新密钥</button></div></form><p class="note">迁移成功后，其他设备也需要改用新密钥。确认所有设备恢复同步后，再撤销旧密钥。旧密钥无法解密时不会覆盖原配置。</p></section>`;
+  return `${onboarding(data)}<section class="section"><h2>通知设备</h2><p>最多连接 8 台设备。请在每台设备上打开网站并启用通知；每台设备独立测试、命名和移除。</p>${devices.map((d) => `<div class="device-row"><div><strong>${esc(d.name)} ${d.id === own ? "<small>本机</small>" : ""}</strong><p>${esc(d.error || "已登记")}${d.lastSuccess ? " · 最近交给推送服务 " + stamp(d.lastSuccess) : ""}</p></div><div class="actions"><button class="secondary" data-device-test="${esc(d.id)}">测试</button><button class="secondary" data-device-rename="${esc(d.id)}">命名</button><button class="secondary" data-device-remove="${esc(d.id)}">移除</button></div></div>`).join("") || `<p class="note">${data.hasLegacyPush ? "原有手机通知仍然保留。在本机重新启用后，可继续添加其他设备。" : "还没有登记多设备通知。"}</p>`}${test ? `<div class="test-result"><strong>${test.ok ? "推送服务已接收测试请求" : "测试发送失败"}</strong><p>${test.ok ? "服务接受请求不等于手机实际收到。请查看目标设备通知，再手动确认。" : esc(test.message)}</p>${test.ok ? `<button class="secondary" data-test-received="${esc(test.id)}" ${received ? "disabled" : ""}>${received ? "已确认实际收到" : "我已在手机收到这条测试"}</button>` : ""}</div>` : ""}</section>${health(data)}<section class="section"><h2>更换密钥，迁移配置</h2><p>用旧密钥解密原配置，再用新密钥重新加密。星标、规则、设备和已读记录一起保留；旧密钥即使已过期，只要原字符串仍在，也能用于解密。</p><form id="rotate-form"><label class="note" for="old-token">原来的 GitHub 密钥（留空使用本机当前密钥）</label><input id="old-token" type="password" autocomplete="off" placeholder="旧 github_pat_…"><label class="note" for="new-token">新 GitHub 密钥 · 本仓库 Contents / Actions 读写权限</label><input id="new-token" type="password" autocomplete="off" required placeholder="新 github_pat_…"><div class="actions"><button class="primary" type="submit">迁移到新密钥</button></div></form><p class="note">迁移成功后，其他设备也需要改用新密钥。确认所有设备恢复同步后，再撤销旧密钥。旧密钥无法解密时不会覆盖原配置。</p></section>`;
 }
 export function eventView(data) {
   const read = new Set(data.readEvents || []),
@@ -223,7 +223,7 @@ export function eventView(data) {
   const movieIds = [
     ...new Set(data.events.map((e) => e.movie_id).filter(Boolean)),
   ];
-  return `<div class="eyebrow">EVERY OPENING, REMEMBERED</div><div class="hero"><div><h1>提醒都有迹可循。</h1><p class="intro">最近 60 条记录 · ${unread} 条未读。已交给推送服务不代表手机实际收到。</p></div><button class="secondary" data-action="reload">刷新记录</button></div><div class="event-filters"><label>电影 <select id="event-movie"><option value="">全部电影</option>${movieIds.map((id) => `<option value="${esc(id)}" ${selected(browsing.eventMovie === id)}>${esc(data.movies.find((m) => m.id === id)?.name || id)}</option>`).join("")}</select></label><label>状态 <select id="event-status">${[
+  return `<div class="hero"><div><h1>提醒记录</h1><p class="intro">最近 60 条 · ${unread} 条未读</p></div><button class="secondary" data-action="reload">刷新记录</button></div><div class="event-filters"><label>电影 <select id="event-movie"><option value="">全部电影</option>${movieIds.map((id) => `<option value="${esc(id)}" ${selected(browsing.eventMovie === id)}>${esc(data.movies.find((m) => m.id === id)?.name || id)}</option>`).join("")}</select></label><label>状态 <select id="event-status">${[
     ["all", "全部记录"],
     ["unread", "未读"],
     ["pending", "待发送"],
@@ -284,7 +284,7 @@ function detail(movie, data) {
         ...rule.formats,
       ]),
     ];
-  return `<div class="detail-heading"><span class="section-kicker">A STORY WORTH WAITING FOR</span><h2 id="detail-title">${esc(movie.name)}</h2><p>${esc(movie.release)} · ${esc(countdown(movie.release))}</p><button class="dialog-close secondary" data-close-detail aria-label="关闭电影详情">×</button></div><div class="detail-facts"><span>主演 <b>${esc(movie.actors || "资料待补充")}</b></span><span>猫眼评分 <b>${movie.score ? esc(movie.score) : "暂无"}</b></span><span>想看人数 <b>${Number(movie.wish || 0).toLocaleString()}</b></span></div><div class="detail-actions"><button class="primary" data-star="${esc(movie.id)}" ${movie.syncState === "saving" || (data.connected && !data.personalReady) ? "disabled" : ""}>${movie.active ? "★ 已星标 · 点击停止" : monitorEligible(movie, rule) ? "☆ 星标并监测" : "☆ 收藏这部电影"}</button><button class="secondary" data-copy-film="${esc(movie.id)}">复制电影链接</button></div><div class="detail-status">${filmStatus(movie, data)}</div><section class="detail-section"><h3>影院场次 <small>${matching.length} 场可售符合当前规则</small></h3><p class="note">以下是最近一次检查时观测到的场次；余票、票价和最终可售情况请以猫眼为准。</p>${data.cinemas
+  return `<div class="detail-heading"><h2 id="detail-title">${esc(movie.name)}</h2><p>${esc(movie.release)} · ${esc(countdown(movie.release))}</p><button class="dialog-close secondary" data-close-detail aria-label="关闭电影详情">×</button></div><div class="detail-facts"><span>主演 <b>${esc(movie.actors || "资料待补充")}</b></span><span>猫眼评分 <b>${movie.score ? esc(movie.score) : "暂无"}</b></span><span>想看人数 <b>${Number(movie.wish || 0).toLocaleString()}</b></span></div><div class="detail-actions"><button class="primary" data-star="${esc(movie.id)}" ${movie.syncState === "saving" || (data.connected && !data.personalReady) ? "disabled" : ""}>${movie.active ? "★ 已星标 · 点击停止" : monitorEligible(movie, rule) ? "☆ 星标并监测" : "☆ 收藏这部电影"}</button><button class="secondary" data-copy-film="${esc(movie.id)}">复制电影链接</button></div><div class="detail-status">${filmStatus(movie, data)}</div><section class="detail-section"><h3>影院场次 <small>${matching.length} 场可售符合当前规则</small></h3><p class="note">以下是最近一次检查时观测到的场次；余票、票价和最终可售情况请以猫眼为准。</p>${data.cinemas
     .map((c, i) => {
       const sessions = rows.filter((r) => r.cinema_id === c.id),
         check = data.checks?.[i];

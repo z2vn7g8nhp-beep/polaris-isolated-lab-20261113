@@ -4,14 +4,15 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>开票雷达 · 西安</title>
-    <link rel="modulepreload" href="./client.mjs?v=audit-1" />
-    <link rel="modulepreload" href="./push.mjs?v=audit-1" />
+    <link rel="modulepreload" href="./client.mjs?v=calm-1" />
+    <link rel="modulepreload" href="./push.mjs?v=calm-1" />
     <link rel="stylesheet" href="./design.css?v=cinema-journal-2" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" href="./icon-192.png" />
     <meta name="theme-color" content="#f6f3ed" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <link rel="stylesheet" href="./features.css?v=audit-1" />
+    <link rel="stylesheet" href="./features.css?v=calm-1" />
+    <link rel="stylesheet" href="./comfort.css?v=calm-1" />
   </head>
   <body>
     <div class="app">
@@ -26,7 +27,6 @@
               /></svg></span
           >开票雷达</a
         >
-        <div class="tag">A PERSONAL CINEMA JOURNAL</div>
         <nav aria-label="主导航">
           <button data-view="library" class="selected">
             <span aria-hidden="true">▤</span>电影片库</button
@@ -43,31 +43,18 @@
           </button>
         </nav>
         <div class="sidebottom">
-          <div class="side-art" aria-hidden="true">
-            <span>光</span><i></i><small>LIGHTS. CAMERA. ANTICIPATION.</small>
-          </div>
-          <div class="tinylabel">YOUR CINEMA CITY</div>
-          <div class="city">⌖ 西安 · XI'AN</div>
+          <div class="city">西安</div>
           <p>MOMOPARK UME<br />西安荟聚寰映</p>
-          <p style="margin-top: 22px; font-size: 10px">
-            每一场期待，都值得被记住。
-          </p>
         </div>
       </aside>
       <a class="skip-link" href="#content">跳转到内容</a>
       <main class="main">
-        <div class="top">
-          <span class="breadcrumb"
-            >我的电影手记 <span style="margin: 0 10px">/</span>
-            <b id="crumb">电影片库</b></span
-          ><span class="private">⌑ 加密同步 · 私人影单</span>
-        </div>
         <div id="content" tabindex="-1">
           <div class="loading">正在载入你的电影片库…</div>
         </div>
       </main>
     </div>
     <div role="status" aria-live="polite" class="toast hidden" id="toast"></div>
-    <script type="module" src="./app.mjs?v=audit-1"></script>
+    <script type="module" src="./app.mjs?v=calm-1"></script>
   </body>
 </html>

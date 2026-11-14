@@ -1,6 +1,6 @@
 import { normalizeRule } from "./rules.mjs";
 import { keyBytes, sealPreferences, unseal } from "./crypto.mjs";
-import { newerPublic, mergeStatus } from "./status.mjs?v=audit-1";
+import { newerPublic, mergeStatus } from "./status.mjs?v=calm-1";
 const REPO = "z2vn7g8nhp-beep/polaris-isolated-lab-20261113";
 const API = `https://api.github.com/repos/${REPO}`;
 const storageKey = "polaris.github-token.v1";
@@ -318,6 +318,7 @@ function currentState() {
     connected: Boolean(token),
     pending: pending(),
     requestResult: latest?.requestResult,
+    countdownMovieId: prefs?.countdownMovieId || null,
     movieRules: prefs?.movieRules || latest?.movieRules || {},
     readEvents: prefs?.readEvents || latest?.readEvents || [],
     receivedTest: prefs?.receivedTest || null,
@@ -519,6 +520,19 @@ export async function api(path, body) {
       throw error;
     }
   }
+  if (path === "countdown")
+    return serial(() =>
+      update((p) => {
+        if (
+          typeof body.id !== "string" ||
+          !/^\d+$/.test(body.id) ||
+          !base?.movies.some((m) => m.id === body.id)
+        )
+          throw new Error("请选择片库中的电影");
+        p.countdownMovieId = body.id;
+        return p;
+      }),
+    );
   if (path === "rule")
     return serial(() =>
       update((p) => {
