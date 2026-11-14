@@ -1,139 +1,645 @@
-import {keyBytes,sealPreferences,unseal} from './crypto.mjs';
-import {newerPublic,mergeStatus} from './status.mjs?v=fast-five-1';
-const REPO='z2vn7g8nhp-beep/polaris-isolated-lab-20261113';
-const API=`https://api.github.com/repos/${REPO}`;
-const storageKey='polaris.github-token.v1';
-const publicCacheKey='polaris.public-cache.v1',personalCacheKey='polaris.encrypted-cache.v1';
-function readCache(key){try{return JSON.parse(localStorage.getItem(key))}catch{return null}}
-function writeCache(key,value){try{localStorage.setItem(key,JSON.stringify(value))}catch{}}
-let token=localStorage.getItem(storageKey)||'',rawKey=null,prefs=null,latest=null;
-let base=readCache(publicCacheKey),envelopes={},hydrated=false,epoch=0,flight=null,syncing=false,syncError=null;
-if(!Array.isArray(base?.movies))base=null;
-const observers=new Set();
-export const connected=()=>Boolean(token);
-export const pending=()=>Boolean(prefs&&latest?.processedRevision!==prefs.revision);
-export const repository=REPO;
-async function request(path,{method='GET',body,optional=false}={}) {
-  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
-  try{
-  const response=await fetch(API+path,{signal:controller.signal,method,redirect:'error',cache:'no-store',headers:{Accept:'application/vnd.github+json',...(token?{Authorization:`Bearer ${token}`}:{})},body:body?JSON.stringify(body):undefined});
-  if(optional&&response.status===404)return null;
-  if(!response.ok){
-    const text=response.status===401?'GitHub 密钥无效或已到期':response.status===403?'GitHub 权限不足：请检查新仓库的 Contents 和 Actions 读写权限':response.status===409?'同步冲突，请稍后再试':`GitHub 请求失败（${response.status}）`;
-    throw new Error(text);
+import { normalizeRule } from "./rules.mjs";
+import { keyBytes, sealPreferences, unseal } from "./crypto.mjs";
+import { newerPublic, mergeStatus } from "./status.mjs?v=companion-1";
+const REPO = "z2vn7g8nhp-beep/polaris-isolated-lab-20261113";
+const API = `https://api.github.com/repos/${REPO}`;
+const storageKey = "polaris.github-token.v1";
+const publicCacheKey = "polaris.public-cache.v1",
+  personalCacheKey = "polaris.encrypted-cache.v1";
+function readCache(key) {
+  try {
+    return JSON.parse(localStorage.getItem(key));
+  } catch {
+    return null;
   }
-  if(response.status===204)return null;
-  return await response.json();
-  }catch(error){if(error.name==='AbortError')throw new Error('GitHub 连接超时，暂时显示上次保存的私人数据');throw error}
-  finally{clearTimeout(timeout)}
 }
-function decodeContent(value) {return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(value.content.replace(/\s/g,'')),c=>c.charCodeAt(0))))}
-function encodeContent(value) {const bytes=new TextEncoder().encode(JSON.stringify(value));let text='';for(const c of bytes)text+=String.fromCharCode(c);return btoa(text)}
-async function file(path,branch,optional=false){const r=await request(`/contents/${path}?ref=${branch}`,{optional});return r?{value:decodeContent(r),sha:r.sha}:null}
-async function readPreferences(){
-  rawKey=rawKey||await keyBytes(token);
-  const saved=await file('preferences.enc.json','preferences',true);
-  if(!saved)return {value:{revision:'',stars:[]},sha:null};
-  try{return {value:await unseal(saved.value,rawKey),sha:saved.sha}}
-  catch{throw new Error('同步密钥与现有配置不匹配。请使用最初连接时的同一个 GitHub 密钥；不要覆盖原配置。')}
+function writeCache(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
 }
-export async function connect(value){
-  const previous={token,rawKey,prefs,latest,envelopes,hydrated};token=value.trim();rawKey=null;prefs=null;latest=null;envelopes={};hydrated=true;epoch++;
-  try{
-    if(!token)throw new Error('请填写新仓库的 GitHub 密钥');
-    const repo=await request('');if(!repo.permissions?.push)throw new Error('这个密钥没有新仓库的写入权限');
-    await readPreferences();
-    await update(value=>value);localStorage.setItem(storageKey,token);
-  }catch(error){({token,rawKey,prefs,latest,envelopes,hydrated}=previous);epoch++;throw error}
+let token = localStorage.getItem(storageKey) || "",
+  rawKey = null,
+  prefs = null,
+  latest = null;
+let base = readCache(publicCacheKey),
+  envelopes = {},
+  hydrated = false,
+  epoch = 0,
+  flight = null,
+  syncing = false,
+  syncError = null;
+if (!Array.isArray(base?.movies)) base = null;
+const observers = new Set(),
+  mutations = new Map();
+let writeQueue = Promise.resolve();
+export function deviceId() {
+  let id = localStorage.getItem("polaris.device-id");
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem("polaris.device-id", id);
+  }
+  return id;
 }
-export function disconnect(){token='';rawKey=null;prefs=null;latest=null;envelopes={};hydrated=false;epoch++;localStorage.removeItem(storageKey);localStorage.removeItem(personalCacheKey)}
-async function trigger(){await request('/actions/workflows/scheduled-watch.yml/dispatches',{method:'POST',body:{ref:'main',inputs:{mode:'check'}}})}
-async function update(change){
-  if(!token)throw new Error('先到「监测与推送」连接 GitHub；只需设置一次');
+function serial(work) {
+  const result = writeQueue.then(work);
+  writeQueue = result.catch(() => {});
+  return result;
+}
+export const connected = () => Boolean(token);
+export const pending = () =>
+  Boolean(prefs && latest?.processedRevision !== prefs.revision);
+export const repository = REPO;
+async function request(path, { method = "GET", body, optional = false } = {}) {
+  const controller = new AbortController(),
+    timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(API + path, {
+      signal: controller.signal,
+      method,
+      redirect: "error",
+      cache: "no-store",
+      headers: {
+        Accept: "application/vnd.github+json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (optional && response.status === 404) return null;
+    if (!response.ok) {
+      const text =
+        response.status === 401
+          ? "GitHub 密钥无效或已到期"
+          : response.status === 403
+            ? "GitHub 权限不足：请检查新仓库的 Contents 和 Actions 读写权限"
+            : response.status === 409
+              ? "同步冲突，请稍后再试"
+              : `GitHub 请求失败（${response.status}）`;
+      throw new Error(text);
+    }
+    if (response.status === 204) return null;
+    return await response.json();
+  } catch (error) {
+    if (error.name === "AbortError")
+      throw new Error("GitHub 连接超时，暂时显示上次保存的私人数据");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+function decodeContent(value) {
+  return JSON.parse(
+    new TextDecoder().decode(
+      Uint8Array.from(atob(value.content.replace(/\s/g, "")), (c) =>
+        c.charCodeAt(0),
+      ),
+    ),
+  );
+}
+function encodeContent(value) {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  let text = "";
+  for (const c of bytes) text += String.fromCharCode(c);
+  return btoa(text);
+}
+async function file(path, branch, optional = false) {
+  const r = await request(`/contents/${path}?ref=${branch}`, { optional });
+  return r ? { value: decodeContent(r), sha: r.sha } : null;
+}
+async function readPreferences() {
+  rawKey = rawKey || (await keyBytes(token));
+  const saved = await file("preferences.enc.json", "preferences", true);
+  if (!saved) return { value: { revision: "", stars: [] }, sha: null };
+  try {
+    return { value: await unseal(saved.value, rawKey), sha: saved.sha };
+  } catch {
+    throw new Error(
+      "同步密钥与现有配置不匹配。请使用最初连接时的同一个 GitHub 密钥；不要覆盖原配置。",
+    );
+  }
+}
+export async function connect(value) {
+  const previous = { token, rawKey, prefs, latest, envelopes, hydrated };
+  token = value.trim();
+  rawKey = null;
+  prefs = null;
+  latest = null;
+  envelopes = {};
+  hydrated = true;
   epoch++;
-  const main=await request('/git/ref/heads/main');
-  if(!await request('/git/ref/heads/preferences',{optional:true})){
-    try{await request('/git/refs',{method:'POST',body:{ref:'refs/heads/preferences',sha:main.object.sha}})}catch(error){if(!await request('/git/ref/heads/preferences',{optional:true}))throw error}
+  try {
+    if (!token) throw new Error("请填写新仓库的 GitHub 密钥");
+    const repo = await request("");
+    if (!repo.permissions?.push)
+      throw new Error("这个密钥没有新仓库的写入权限");
+    await readPreferences();
+    await update((value) => value);
+    localStorage.setItem(storageKey, token);
+  } catch (error) {
+    ({ token, rawKey, prefs, latest, envelopes, hydrated } = previous);
+    epoch++;
+    throw error;
   }
-  const saved=await readPreferences();
-  const changed=change(structuredClone(saved.value));changed.revision=crypto.randomUUID();
-  const publicKey=await (await fetch('./data/public-key.json',{cache:'no-store'})).json();
-  const envelope=await sealPreferences(changed,rawKey,publicKey.spki);
-  await request('/contents/preferences.enc.json',{method:'PUT',body:{message:'Update encrypted preferences',branch:'preferences',content:encodeContent(envelope),...(saved.sha?{sha:saved.sha}:{})}});
-  epoch++;prefs=changed;envelopes.preferences=envelope;writeCache(personalCacheKey,envelopes);
-  try{await trigger()}catch{window.dispatchEvent(new CustomEvent('polaris-notice',{detail:'配置已加密保存；立即触发未成功，定时任务会在下一轮处理。'}))}
-  return {queued:true};
 }
-function currentState(){
-  if(!base)return null;
-  const starred=new Set(prefs?.stars||[]);
-  const combined=mergeStatus(base,latest);
-  return {...combined,syncError,syncing,personalReady:!token||prefs!==null,movies:combined.movies.map(m=>({...m,active:starred.has(m.id)})),
-    events:latest?.events||[],pushConfigured:latest?.processedRevision===prefs?.revision?Boolean(latest?.pushConfigured):Boolean(prefs?.pushSubscription||latest?.pushConfigured),
-    notificationMode:prefs?.notificationMode||latest?.notificationMode||'off',
-    barkConfigured:Object.hasOwn(prefs||{},'barkKey')?Boolean(prefs.barkKey):Boolean(latest?.barkConfigured),
-    paused:prefs?.control?.action==='pause'&&pending()?'暂停请求待后台处理':combined.paused||null,
-    connected:Boolean(token),pending:pending(),requestResult:latest?.requestResult};
+export function disconnect() {
+  mutations.clear();
+  token = "";
+  rawKey = null;
+  prefs = null;
+  latest = null;
+  envelopes = {};
+  hydrated = false;
+  epoch++;
+  localStorage.removeItem(storageKey);
+  localStorage.removeItem(personalCacheKey);
 }
-function publish(){const state=currentState();if(state)for(const observer of observers)observer(state)}
-function acceptPublic(value){if(!Array.isArray(value?.movies))throw new Error('片库数据无效');base=newerPublic(base,value);writeCache(publicCacheKey,base);publish()}
-async function restorePersonal(secret,version){
-  if(hydrated)return;hydrated=true;
-  const cached=readCache(personalCacheKey);if(!cached)return;
-  try{
-    const key=await keyBytes(secret);
-    const [saved,personal]=await Promise.all([cached.preferences?unseal(cached.preferences,key):null,cached.private?unseal(cached.private,key):null]);
-    if(secret!==token||version!==epoch)return;
-    rawKey=key;envelopes=cached;prefs=saved;latest=personal;publish();
-  }catch{/* A cache encrypted for another connection must never replace its data. */}
+async function trigger() {
+  await request("/actions/workflows/scheduled-watch.yml/dispatches", {
+    method: "POST",
+    body: { ref: "main", inputs: { mode: "check" } },
+  });
 }
-async function refresh(){
-  syncing=true;syncError=null;publish();
-  const secret=token,version=epoch,errors=[];
-  const page=(async()=>{
-    const response=await fetch('./data/state.json',{cache:'no-cache',signal:AbortSignal.timeout(10000)});
-    if(!response.ok)throw new Error('片库暂时无法更新，正在显示上次保存的数据');
-    acceptPublic(await response.json());
-  })();
-  const personal=(async()=>{
-    if(!secret)return;
-    await restorePersonal(secret,version);
-    const key=await keyBytes(secret),current=()=>secret===token&&version===epoch;
-    const remember=(name,value)=>{if(value)envelopes[name]=value;else delete envelopes[name];writeCache(personalCacheKey,envelopes)};
-    const results=await Promise.allSettled([
-      file('public.json','monitor-state',true).then(remote=>{if(remote)acceptPublic(remote.value)}),
-      file('preferences.enc.json','preferences',true).then(async saved=>{
-        let value;try{value=saved?await unseal(saved.value,key):{revision:'',stars:[]}}catch{throw new Error('同步密钥与现有配置不匹配，请使用最初连接时的同一个 GitHub 密钥。')}
-        if(current()){rawKey=key;prefs=value;remember('preferences',saved?.value);publish()}
+async function update(change) {
+  if (!token) throw new Error("先到「监测与推送」连接 GitHub；只需设置一次");
+  epoch++;
+  const main = await request("/git/ref/heads/main");
+  if (!(await request("/git/ref/heads/preferences", { optional: true }))) {
+    try {
+      await request("/git/refs", {
+        method: "POST",
+        body: { ref: "refs/heads/preferences", sha: main.object.sha },
+      });
+    } catch (error) {
+      if (!(await request("/git/ref/heads/preferences", { optional: true })))
+        throw error;
+    }
+  }
+  const saved = await readPreferences();
+  const changed = change(structuredClone(saved.value));
+  changed.revision = crypto.randomUUID();
+  const publicKey = await (
+    await fetch("./data/public-key.json", { cache: "no-store" })
+  ).json();
+  const envelope = await sealPreferences(changed, rawKey, publicKey.spki);
+  await request("/contents/preferences.enc.json", {
+    method: "PUT",
+    body: {
+      message: "Update encrypted preferences",
+      branch: "preferences",
+      content: encodeContent(envelope),
+      ...(saved.sha ? { sha: saved.sha } : {}),
+    },
+  });
+  epoch++;
+  prefs = changed;
+  envelopes.preferences = envelope;
+  writeCache(personalCacheKey, envelopes);
+  try {
+    await trigger();
+  } catch {
+    window.dispatchEvent(
+      new CustomEvent("polaris-notice", {
+        detail: "配置已加密保存；立即触发未成功，定时任务会在下一轮处理。",
       }),
-      file('private.enc.json','monitor-state',true).then(async saved=>{
-        const value=saved?await unseal(saved.value,key):null;
-        if(current()){latest=value;remember('private',saved?.value);publish()}
-      })
-    ]);
-    if(current())for(const result of results)if(result.status==='rejected')errors.push(result.reason.message);
-  })();
-  const results=await Promise.allSettled([page,personal]);
-  for(const result of results)if(result.status==='rejected')errors.push(result.reason.message||'连接暂时失败');
-  syncing=false;syncError=errors[0]||null;
-  if(!base)throw new Error(syncError||'片库暂时无法连接');
+    );
+  }
+  return { queued: true };
+}
+function currentState() {
+  if (!base) return null;
+  const starred = new Set(prefs?.stars || []);
+  const combined = mergeStatus(base, latest);
+  return {
+    ...combined,
+    syncError,
+    syncing,
+    personalReady: !token || prefs !== null,
+    events: latest?.events || [],
+    pushConfigured:
+      latest?.processedRevision === prefs?.revision
+        ? Boolean(latest?.pushConfigured)
+        : Boolean(prefs?.pushSubscription || latest?.pushConfigured),
+    notificationMode:
+      prefs?.notificationMode || latest?.notificationMode || "off",
+    barkConfigured: Object.hasOwn(prefs || {}, "barkKey")
+      ? Boolean(prefs.barkKey)
+      : Boolean(latest?.barkConfigured),
+    paused:
+      prefs?.control?.action === "pause" && pending()
+        ? "暂停请求待后台处理"
+        : combined.paused || null,
+    connected: Boolean(token),
+    pending: pending(),
+    requestResult: latest?.requestResult,
+    movieRules: prefs?.movieRules || latest?.movieRules || {},
+    readEvents: prefs?.readEvents || latest?.readEvents || [],
+    receivedTest: prefs?.receivedTest || null,
+    pushDevices: prefs?.pushDevices
+      ? prefs.pushDevices.map((d) => {
+          const applied = latest?.pushDevices?.find(
+            (x) => x.id === d.id && x.registration === d.registration,
+          );
+          return {
+            id: d.id,
+            name: d.name,
+            registration: d.registration,
+            ...applied,
+          };
+        })
+      : latest?.pushDevices || null,
+    hasLegacyPush: !!prefs?.pushSubscription && !prefs?.pushDevices,
+    mutationErrors: Object.fromEntries(
+      [...mutations].filter(([, v]) => v.error).map(([id, v]) => [id, v]),
+    ),
+    movies: combined.movies.map((m) => {
+      const operation = mutations.get(m.id),
+        active = operation?.desired ?? starred.has(m.id);
+      return {
+        ...m,
+        active,
+        syncState: operation?.saving
+          ? "saving"
+          : operation?.error
+            ? "error"
+            : prefs?.starRevisions?.[m.id] &&
+                prefs.starRevisions[m.id] !== latest?.starRevisions?.[m.id]
+              ? "pending"
+              : "applied",
+      };
+    }),
+  };
+}
+function publish() {
+  const state = currentState();
+  if (state) {
+    for (const observer of observers) observer(state);
+    window.dispatchEvent(new CustomEvent("polaris-state", { detail: state }));
+  }
+}
+function acceptPublic(value) {
+  if (!Array.isArray(value?.movies)) throw new Error("片库数据无效");
+  base = newerPublic(base, value);
+  writeCache(publicCacheKey, base);
   publish();
 }
-export async function load({onUpdate}={}){
-  if(onUpdate){observers.add(onUpdate);const cached=currentState();if(cached)onUpdate(cached)}
-  if(!flight)flight=refresh().finally(()=>{flight=null});
-  try{await flight;return currentState()}finally{if(onUpdate)observers.delete(onUpdate)}
+async function restorePersonal(secret, version) {
+  if (hydrated) return;
+  hydrated = true;
+  const cached = readCache(personalCacheKey);
+  if (!cached) return;
+  try {
+    const key = await keyBytes(secret);
+    const [saved, personal] = await Promise.all([
+      cached.preferences ? unseal(cached.preferences, key) : null,
+      cached.private ? unseal(cached.private, key) : null,
+    ]);
+    if (secret !== token || version !== epoch) return;
+    rawKey = key;
+    envelopes = cached;
+    prefs = saved;
+    latest = personal;
+    publish();
+  } catch {
+    /* A cache encrypted for another connection must never replace its data. */
+  }
 }
-export async function api(path,body){
-  if(path==='state')return load(body);
-  if(path==='star')return update(p=>{const stars=new Set(p.stars);body.active?stars.add(body.id):stars.delete(body.id);p.stars=[...stars];return p});
-  if(path==='bark')return update(p=>{if(!/^[A-Za-z0-9_-]{8,200}$/.test(body.key))throw new Error('请输入 Bark 设备 Key，而不是完整网址');p.barkKey=body.key;p.notificationMode='bark';return p});
-  if(path==='bark/remove')return update(p=>{p.barkKey=null;return p});
-  if(path==='pause'||path==='resume')return update(p=>{p.control={id:crypto.randomUUID(),action:path};return p});
-  if(path==='push')return update(p=>{p.pushSubscription=body.subscription;p.notificationMode='push';return p});
-  if(path==='push/remove')return update(p=>{p.pushSubscription=null;p.notificationMode='off';return p});
-  if(path==='push/test')return update(p=>{p.request={id:crypto.randomUUID(),action:path};return p});
-  if(path==='bark/test')return update(p=>{p.request={id:crypto.randomUUID(),action:path};return p});
-  if(path==='tick'){if(!token)throw new Error('请先连接 GitHub');await trigger();return {queued:true}}
-  throw new Error('不支持的操作');
+async function refresh() {
+  syncing = true;
+  syncError = null;
+  publish();
+  const secret = token,
+    version = epoch,
+    errors = [];
+  const page = (async () => {
+    const response = await fetch("./data/state.json", {
+      cache: "no-cache",
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok)
+      throw new Error("片库暂时无法更新，正在显示上次保存的数据");
+    acceptPublic(await response.json());
+  })();
+  const personal = (async () => {
+    if (!secret) return;
+    await restorePersonal(secret, version);
+    const key = await keyBytes(secret),
+      current = () => secret === token && version === epoch;
+    const remember = (name, value) => {
+      if (value) envelopes[name] = value;
+      else delete envelopes[name];
+      writeCache(personalCacheKey, envelopes);
+    };
+    const results = await Promise.allSettled([
+      file("public.json", "monitor-state", true).then((remote) => {
+        if (remote) acceptPublic(remote.value);
+      }),
+      file("preferences.enc.json", "preferences", true).then(async (saved) => {
+        let value;
+        try {
+          value = saved
+            ? await unseal(saved.value, key)
+            : { revision: "", stars: [] };
+        } catch {
+          throw new Error(
+            "同步密钥与现有配置不匹配，请使用最初连接时的同一个 GitHub 密钥。",
+          );
+        }
+        if (current()) {
+          rawKey = key;
+          prefs = value;
+          remember("preferences", saved?.value);
+          publish();
+        }
+      }),
+      file("private.enc.json", "monitor-state", true).then(async (saved) => {
+        const value = saved ? await unseal(saved.value, key) : null;
+        if (current()) {
+          latest = value;
+          remember("private", saved?.value);
+          publish();
+        }
+      }),
+    ]);
+    if (current())
+      for (const result of results)
+        if (result.status === "rejected") errors.push(result.reason.message);
+  })();
+  const results = await Promise.allSettled([page, personal]);
+  for (const result of results)
+    if (result.status === "rejected")
+      errors.push(result.reason.message || "连接暂时失败");
+  syncing = false;
+  syncError = errors[0] || null;
+  if (!base) throw new Error(syncError || "片库暂时无法连接");
+  publish();
+}
+export async function load({ onUpdate } = {}) {
+  if (onUpdate) {
+    observers.add(onUpdate);
+    const cached = currentState();
+    if (cached) onUpdate(cached);
+  }
+  if (!flight)
+    flight = refresh().finally(() => {
+      flight = null;
+    });
+  try {
+    await flight;
+    return currentState();
+  } finally {
+    if (onUpdate) observers.delete(onUpdate);
+  }
+}
+export async function api(path, body) {
+  if (path === "state") return load(body);
+  if (path === "star") {
+    if (!token) throw new Error("先到「监测与推送」连接 GitHub；只需设置一次");
+    if (mutations.get(body.id)?.saving)
+      throw new Error("该电影正在保存，请稍候");
+    mutations.set(body.id, { desired: body.active, saving: true });
+    publish();
+    try {
+      const result = await serial(() =>
+        update((p) => {
+          const stars = new Set(p.stars);
+          body.active ? stars.add(body.id) : stars.delete(body.id);
+          p.stars = [...stars];
+          p.starRevisions = {
+            ...p.starRevisions,
+            [body.id]: crypto.randomUUID(),
+          };
+          return p;
+        }),
+      );
+      mutations.delete(body.id);
+      publish();
+      return result;
+    } catch (error) {
+      mutations.set(body.id, { error: error.message, retry: body.active });
+      publish();
+      throw error;
+    }
+  }
+  if (path === "rule")
+    return serial(() =>
+      update((p) => {
+        p.movieRules = { ...p.movieRules, [body.id]: normalizeRule(body.rule) };
+        return p;
+      }),
+    );
+  if (path === "events/read")
+    return serial(() =>
+      update((p) => {
+        p.readEvents = [
+          ...new Set([...(p.readEvents || []), ...body.ids]),
+        ].slice(-500);
+        return p;
+      }),
+    );
+  if (path === "test/received")
+    return serial(() =>
+      update((p) => {
+        p.receivedTest = {
+          id: body.id,
+          deviceId: deviceId(),
+          at: Date.now() / 1000,
+        };
+        return p;
+      }),
+    );
+  if (path === "bark")
+    return serial(() =>
+      update((p) => {
+        if (!/^[A-Za-z0-9_-]{8,200}$/.test(body.key))
+          throw new Error("请输入 Bark 设备 Key，而不是完整网址");
+        p.barkKey = body.key;
+        p.notificationMode = "bark";
+        return p;
+      }),
+    );
+  if (path === "bark/remove")
+    return serial(() =>
+      update((p) => {
+        p.barkKey = null;
+        return p;
+      }),
+    );
+  if (path === "pause" || path === "resume")
+    return serial(() =>
+      update((p) => {
+        p.control = { id: crypto.randomUUID(), action: path };
+        return p;
+      }),
+    );
+  if (path === "push")
+    return serial(() =>
+      update((p) => {
+        let devices = p.pushDevices || [];
+        if (
+          !p.pushDevices &&
+          p.pushSubscription &&
+          p.pushSubscription.endpoint !== body.subscription.endpoint &&
+          p.pushSubscription.endpoint !== body.previousEndpoint
+        )
+          devices = [
+            {
+              id: "legacy",
+              name: "原有设备",
+              registration: crypto.randomUUID(),
+              subscription: p.pushSubscription,
+            },
+          ];
+        const id = deviceId();
+        devices = devices.filter(
+          (d) =>
+            d.id !== id &&
+            d.subscription.endpoint !== body.subscription.endpoint &&
+            d.subscription.endpoint !== body.previousEndpoint,
+        );
+        if (devices.length >= 8)
+          throw new Error("最多连接 8 台设备，请先移除旧设备");
+        p.pushDevices = [
+          ...devices,
+          {
+            id,
+            name: String(body.name || "我的设备")
+              .trim()
+              .slice(0, 40),
+            registration: crypto.randomUUID(),
+            subscription: body.subscription,
+          },
+        ];
+        p.pushSubscription = null;
+        p.notificationMode = "push";
+        return p;
+      }),
+    );
+  if (path === "device/remove")
+    return serial(() =>
+      update((p) => {
+        p.pushDevices = (p.pushDevices || []).filter((d) => d.id !== body.id);
+        if (!p.pushDevices.length) p.notificationMode = "off";
+        return p;
+      }),
+    );
+  if (path === "device/rename")
+    return serial(() =>
+      update((p) => {
+        const name = String(body.name || "")
+          .trim()
+          .slice(0, 40);
+        if (!name) throw new Error("请输入设备名称");
+        p.pushDevices = (p.pushDevices || []).map((d) =>
+          d.id === body.id ? { ...d, name } : d,
+        );
+        return p;
+      }),
+    );
+  if (path === "push/remove")
+    return serial(() =>
+      update((p) => {
+        p.pushSubscription = null;
+        if (p.pushDevices) {
+          p.pushDevices = p.pushDevices.filter((d) => d.id !== deviceId());
+          if (!p.pushDevices.length) p.notificationMode = "off";
+        } else p.notificationMode = "off";
+        return p;
+      }),
+    );
+  if (path === "push/test")
+    return serial(() =>
+      update((p) => {
+        p.request = {
+          id: crypto.randomUUID(),
+          action: path,
+          deviceId: body?.deviceId || deviceId(),
+        };
+        return p;
+      }),
+    );
+  if (path === "bark/test")
+    return serial(() =>
+      update((p) => {
+        p.request = { id: crypto.randomUUID(), action: path };
+        return p;
+      }),
+    );
+  if (path === "tick") {
+    if (!token) throw new Error("请先连接 GitHub");
+    await trigger();
+    return { queued: true };
+  }
+  throw new Error("不支持的操作");
+}
+
+// Read with the new credential, decrypt with the old one, then atomically replace
+// the envelope. This still works when the old GitHub token has expired.
+export async function rotateToken(nextToken, oldToken = token) {
+  return serial(async () => {
+    const next = nextToken.trim(),
+      old = oldToken.trim();
+    if (!next || !old) throw new Error("请填写旧密钥和新密钥");
+    const previous = { token, rawKey, prefs, latest, envelopes, hydrated };
+    token = next;
+    epoch++;
+    try {
+      const repo = await request("");
+      if (!repo.permissions?.push) throw new Error("新密钥缺少仓库写入权限");
+      const saved = await file("preferences.enc.json", "preferences");
+      if (!saved) throw new Error("未找到可迁移的配置");
+      let value;
+      try {
+        value = await unseal(saved.value, await keyBytes(old));
+      } catch {
+        throw new Error("旧密钥无法解密现有配置，未覆盖任何数据");
+      }
+      const key = await keyBytes(next),
+        publicKey = await (
+          await fetch("./data/public-key.json", { cache: "no-store" })
+        ).json();
+      value.revision = crypto.randomUUID();
+      const envelope = await sealPreferences(value, key, publicKey.spki);
+      await request("/contents/preferences.enc.json", {
+        method: "PUT",
+        body: {
+          message: "Rotate encrypted preferences key",
+          branch: "preferences",
+          content: encodeContent(envelope),
+          sha: saved.sha,
+        },
+      });
+      rawKey = key;
+      prefs = value;
+      latest = null;
+      envelopes = { preferences: envelope };
+      hydrated = true;
+      epoch++;
+      try {
+        localStorage.setItem(storageKey, next);
+      } catch {
+        window.dispatchEvent(
+          new CustomEvent("polaris-notice", {
+            detail:
+              "配置已迁移，但本机无法保存登录。请保留新密钥，下次打开时重新连接。",
+          }),
+        );
+      }
+      writeCache(personalCacheKey, envelopes);
+      publish();
+      try {
+        await trigger();
+      } catch {
+        window.dispatchEvent(
+          new CustomEvent("polaris-notice", {
+            detail: "密钥已迁移，立即触发失败；等待定时任务应用。",
+          }),
+        );
+      }
+      return { queued: true };
+    } catch (error) {
+      ({ token, rawKey, prefs, latest, envelopes, hydrated } = previous);
+      epoch++;
+      throw error;
+    }
+  });
 }
