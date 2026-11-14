@@ -64,16 +64,29 @@ export async function sendPush(env, subscription, { title, body, id }) {
   const valid = validateSubscription(subscription);
   if (!env.PUSH_KEYS) throw new Error("手机通知服务尚未配置");
   const sender = env.PUSH_SEND || webpush.sendNotification.bind(webpush);
+  const messageId = id || crypto.randomUUID();
+  const navigate =
+    APP_URL + "?view=events&event=" + encodeURIComponent(messageId);
+  const notification = {
+    title,
+    body,
+    navigate,
+    data: { url: navigate },
+    lang: "zh-CN",
+    silent: false,
+    tag: "polaris-" + messageId,
+    icon: APP_URL + "icon-192.png",
+    badge: APP_URL + "icon-192.png",
+  };
   return sender(
     valid,
     JSON.stringify({
+      web_push: 8030,
+      notification,
       title,
       body,
-      id: id || crypto.randomUUID(),
-      url:
-        APP_URL +
-        "?view=events" +
-        (id ? "&event=" + encodeURIComponent(id) : ""),
+      id: messageId,
+      url: navigate,
     }),
     {
       vapidDetails: {

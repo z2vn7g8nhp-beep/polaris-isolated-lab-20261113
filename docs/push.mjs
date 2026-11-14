@@ -2,7 +2,10 @@ import { connected, api } from "./client.mjs?v=calm-1";
 
 const registration =
   "serviceWorker" in navigator
-    ? navigator.serviceWorker.register("./sw.js", { scope: "./" })
+    ? navigator.serviceWorker.register("./sw.js?v=push-2", {
+        scope: "./",
+        updateViaCache: "none",
+      })
     : Promise.resolve(null);
 registration.catch(() => {});
 export function pushSupport() {
