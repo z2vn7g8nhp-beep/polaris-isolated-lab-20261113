@@ -1,4 +1,5 @@
 import {keyBytes,sealPreferences,unseal} from './crypto.mjs';
+import {newerPublic,mergeStatus} from './status.mjs';
 const REPO='z2vn7g8nhp-beep/polaris-isolated-lab-20261113';
 const API=`https://api.github.com/repos/${REPO}`;
 const storageKey='polaris.github-token.v1';
@@ -7,14 +8,18 @@ export const connected=()=>Boolean(token);
 export const pending=()=>Boolean(prefs&&latest?.processedRevision!==prefs.revision);
 export const repository=REPO;
 async function request(path,{method='GET',body,optional=false}={}) {
-  const response=await fetch(API+path,{method,redirect:'error',cache:'no-store',headers:{Accept:'application/vnd.github+json',...(token?{Authorization:`Bearer ${token}`}:{})},body:body?JSON.stringify(body):undefined});
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
+  try{
+  const response=await fetch(API+path,{signal:controller.signal,method,redirect:'error',cache:'no-store',headers:{Accept:'application/vnd.github+json',...(token?{Authorization:`Bearer ${token}`}:{})},body:body?JSON.stringify(body):undefined});
   if(optional&&response.status===404)return null;
   if(!response.ok){
     const text=response.status===401?'GitHub 密钥无效或已到期':response.status===403?'GitHub 权限不足：请检查新仓库的 Contents 和 Actions 读写权限':response.status===409?'同步冲突，请稍后再试':`GitHub 请求失败（${response.status}）`;
     throw new Error(text);
   }
   if(response.status===204)return null;
-  return response.json();
+  return await response.json();
+  }catch(error){if(error.name==='AbortError')throw new Error('GitHub 连接超时，暂时显示上次保存的私人数据');throw error}
+  finally{clearTimeout(timeout)}
 }
 function decodeContent(value) {return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(value.content.replace(/\s/g,'')),c=>c.charCodeAt(0))))}
 function encodeContent(value) {const bytes=new TextEncoder().encode(JSON.stringify(value));let text='';for(const c of bytes)text+=String.fromCharCode(c);return btoa(text)}
@@ -54,20 +59,22 @@ async function update(change){
 }
 export async function load(){
   let base=await (await fetch('./data/state.json?t='+Date.now(),{cache:'no-store'})).json();
+  let syncError=null;
   if(token){
     try{
-      const remote=await file('public.json','monitor-state',true);if(remote)base=remote.value;
+      const remote=await file('public.json','monitor-state',true);if(remote)base=newerPublic(base,remote.value);
       const saved=await readPreferences();prefs=saved.value;
       const privateFile=await file('private.enc.json','monitor-state',true);
       latest=privateFile?await unseal(privateFile.value,rawKey):null;
-    }catch(error){window.dispatchEvent(new CustomEvent('polaris-notice',{detail:error.message}));}
+    }catch(error){syncError=error.message;window.dispatchEvent(new CustomEvent('polaris-notice',{detail:error.message}));}
   }
   const starred=new Set(prefs?.stars||[]);
-  return {...base,...(latest||{}),movies:base.movies.map(m=>({...m,active:starred.has(m.id)})),
+  const combined=mergeStatus(base,latest);
+  return {...combined,syncError,movies:combined.movies.map(m=>({...m,active:starred.has(m.id)})),
     events:latest?.events||[],pushConfigured:latest?.processedRevision===prefs?.revision?Boolean(latest?.pushConfigured):Boolean(prefs?.pushSubscription||latest?.pushConfigured),
     notificationMode:prefs?.notificationMode||latest?.notificationMode||'off',
     barkConfigured:Object.hasOwn(prefs||{},'barkKey')?Boolean(prefs.barkKey):Boolean(latest?.barkConfigured),
-    paused:prefs?.control?.action==='pause'&&pending()?'暂停请求待后台处理':latest?.paused||null,
+    paused:prefs?.control?.action==='pause'&&pending()?'暂停请求待后台处理':combined.paused||null,
     connected:Boolean(token),pending:pending(),requestResult:latest?.requestResult};
 }
 export async function api(path,body){

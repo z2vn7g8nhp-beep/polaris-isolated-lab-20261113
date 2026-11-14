@@ -56,7 +56,7 @@ export async function applyPreferences(env,prefs) {
   set(env,'preferences_revision',prefs.revision);return true;
 }
 export function publicView(state) {
-  return {cadence:state.cadence,releasedUpdated:state.releasedUpdated,movies:state.movies.map(({active,...movie})=>movie),cinemas:state.cinemas,
+  return {snapshotAt:state.snapshotAt,lastRunOutcome:state.lastRunOutcome,schedulerHeartbeat:state.schedulerHeartbeat,cadence:state.cadence,releasedUpdated:state.releasedUpdated,movies:state.movies.map(({active,...movie})=>movie),cinemas:state.cinemas,
     lastSuccess:state.lastSuccess,lastError:state.lastError,checks:state.checks,
     catalogUpdated:state.catalogUpdated,comingTotal:state.comingTotal,comingSourceReady:state.comingSourceReady,comingUpdated:state.comingUpdated,schedule:{provider:'github-actions',frequency:'five_minutes'}};
 }
@@ -78,6 +78,8 @@ export async function processRun(runtime,envelope,{mode='check'}={}) {
   let result={status:true};
   if(mode!=='status')try{result=await call(env,'tick',{source:'github-actions'})}catch(error){result={error:error.message}}
   const state=await call(env,'state');
+  state.snapshotAt=Math.floor(Date.now()/1000);
+  state.lastRunOutcome=result.paused?'paused':result.cooldown?'cooldown':result.error?'error':result.busy?'busy':mode==='status'?'status':'checked';
   const personal={...state,processedRevision:value(env,'preferences_revision'),requestResult:value(env,'request_result')};
   const publicData=publicView(state);
   const privateData=personalKey?await seal(personal,personalKey):null;
