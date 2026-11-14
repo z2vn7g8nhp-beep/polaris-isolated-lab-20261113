@@ -1,5 +1,5 @@
 import {sendPush,validateSubscription} from "./push.mjs";
-export const CADENCE=Object.freeze({cinemaMinutes:5,comingListMinutes:30,releasedListMinutes:120,detailsMinAgeMinutes:60,batchSize:12,maxCatalogRequests:2,maxRequestsPerRun:4});
+export const CADENCE=Object.freeze({cinemaMinutes:2,cinemaCooldownSeconds:110,comingListMinutes:30,releasedListMinutes:120,detailsMinAgeMinutes:60,batchSize:12,maxCatalogRequests:2,maxRequestsPerRun:4});
 const HTML = "__HTML__";
 import SEED from "../bootstrap/movies.json" with { type: "json" };
 export const CINEMAS = [
@@ -179,7 +179,8 @@ async function tick(env){
     await seed(env);await deliver(env);
     const paused=await get(env,'paused');if(paused)return {paused};
     const next=await get(env,'next_request',0);if(next>now())return {cooldown:true,next};
-    await set(env,'next_request',now()+180+Math.floor(Math.random()*60));
+    // Allow ten seconds of runner-start jitter around the two-minute target.
+    await set(env,'next_request',now()+CADENCE.cinemaCooldownSeconds);
     const checks=[];
     for(const cinema of CINEMAS){
       checks.push(await ingestCinema(env,await source('cinemaDetail?cinemaId='+cinema.id),cinema));

@@ -22,7 +22,7 @@ export function checkHealth(data,at=Date.now()/1000){
   if(data.lastError)return {kind:'error',message:String(data.lastError)};
   if(!data.lastSuccess)return {kind:'unknown',message:'尚未完成第一次成功检查'};
   const minutes=Math.max(0,Math.floor((at-data.lastSuccess)/60));
-  const threshold=Math.max(15,(Number(data.cadence?.cinemaMinutes)||5)*3);
+  const threshold=Math.max(6,(Number(data.cadence?.cinemaMinutes)||Number(data.schedule?.intervalMinutes)||5)*3);
   if(minutes>=threshold)return {kind:'delayed',minutes,message:`已 ${minutes} 分钟未成功检查，后台没有按计划完成更新；可立即提交一次检查。`};
   return {kind:'recent',minutes,message:'最近检查成功'};
 }

@@ -58,7 +58,7 @@ export async function applyPreferences(env,prefs) {
 export function publicView(state) {
   return {snapshotAt:state.snapshotAt,lastRunOutcome:state.lastRunOutcome,schedulerHeartbeat:state.schedulerHeartbeat,cadence:state.cadence,releasedUpdated:state.releasedUpdated,movies:state.movies.map(({active,...movie})=>movie),cinemas:state.cinemas,
     lastSuccess:state.lastSuccess,lastError:state.lastError,checks:state.checks,
-    catalogUpdated:state.catalogUpdated,comingTotal:state.comingTotal,comingSourceReady:state.comingSourceReady,comingUpdated:state.comingUpdated,schedule:{provider:'github-actions',frequency:'five_minutes'}};
+    catalogUpdated:state.catalogUpdated,comingTotal:state.comingTotal,comingSourceReady:state.comingSourceReady,comingUpdated:state.comingUpdated,schedule:{provider:'github-actions',frequency:'two_minutes',intervalMinutes:2,fallbackMinutes:5}};
 }
 export async function createRuntime({master,identity,snapshot,path}) {
   const masterKey=await keyBytes(master,'server');

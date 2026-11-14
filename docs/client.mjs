@@ -1,5 +1,5 @@
 import {keyBytes,sealPreferences,unseal} from './crypto.mjs';
-import {newerPublic,mergeStatus} from './status.mjs';
+import {newerPublic,mergeStatus} from './status.mjs?v=two-minute-1';
 const REPO='z2vn7g8nhp-beep/polaris-isolated-lab-20261113';
 const API=`https://api.github.com/repos/${REPO}`;
 const storageKey='polaris.github-token.v1';

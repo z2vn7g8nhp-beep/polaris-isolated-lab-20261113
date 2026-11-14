@@ -20,3 +20,10 @@ test('an hour-old check must show delayed rather than ready; a recent task snaps
   assert.equal(checkHealth({lastSuccess:4500,lastError:'source failed'},4600).kind,'error');
   assert.equal(checkHealth({lastSuccess:4500,lastRunOutcome:'paused'},4600).kind,'paused');
 });
+test('two-minute monitoring warns after three missed checks, including cooldown-only snapshots',()=>{
+  const state={lastSuccess:1000,snapshotAt:1360,lastRunOutcome:'cooldown',cadence:{cinemaMinutes:2}};
+  assert.equal(checkHealth(state,1359).kind,'recent');
+  assert.equal(checkHealth(state,1360).kind,'delayed');
+  assert.equal(checkHealth({lastSuccess:1000,schedule:{intervalMinutes:2}},1360).kind,'delayed');
+  assert.equal(checkHealth({lastSuccess:1000,cadence:{cinemaMinutes:5}},1360).kind,'recent');
+});
