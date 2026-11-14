@@ -1,0 +1,18 @@
+import {readFileSync,writeFileSync,existsSync,mkdirSync} from 'node:fs';
+import {keyBytes,seal,encode64} from '../docs/crypto.mjs';
+import {dbEnv,call,publicView} from '../backend/storage.mjs';
+if(existsSync('bootstrap/identity.enc.json'))throw new Error('Backend identity already exists; refusing to replace encryption keys.');
+const input=JSON.parse(readFileSync(0,'utf8'));
+if(typeof input.master!=='string'||input.master.length<20)throw new Error('Missing encryption master key');
+const pair=await crypto.subtle.generateKey({name:'RSA-OAEP',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['encrypt','decrypt']);
+const privateKey=encode64(await crypto.subtle.exportKey('pkcs8',pair.privateKey));
+const spki=encode64(await crypto.subtle.exportKey('spki',pair.publicKey));
+const encrypted=await seal({privateKey,kv:input.kv||[]},await keyBytes(input.master,'server'));
+writeFileSync('bootstrap/identity.enc.json',JSON.stringify(encrypted));
+mkdirSync('docs/data',{recursive:true});
+writeFileSync('docs/data/public-key.json',JSON.stringify({v:1,spki}));
+const env=dbEnv();env.db.exec(readFileSync('backend/schema.sql','utf8'));
+const state=await call(env,'state');
+writeFileSync('docs/data/state.json',JSON.stringify(publicView(state)));
+env.db.close();
+console.log(JSON.stringify({encryptionProvisioned:true,movies:state.movies.length}));

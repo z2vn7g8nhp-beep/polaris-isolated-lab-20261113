@@ -2,7 +2,7 @@ name: Test scheduler
 
 on:
   push:
-    paths: ['scripts/**', 'tests/**', '.github/workflows/**']
+    paths: ['scripts/**', 'tests/**', 'backend/**', 'docs/**', '.github/workflows/**']
   pull_request:
 
 permissions:
@@ -16,4 +16,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - run: python3 -m unittest discover -s tests -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --test tests/*.test.mjs

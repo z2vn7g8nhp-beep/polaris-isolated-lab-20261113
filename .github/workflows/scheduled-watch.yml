@@ -1,6 +1,9 @@
-name: Scheduled watch
+name: Movie monitor and Pages
 
 on:
+  push:
+    branches: [main]
+    paths: ["backend/**", "bootstrap/**", "docs/**", ".github/workflows/**"]
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
@@ -22,16 +25,46 @@ jobs:
   watch:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Check the existing Site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Run independent movie monitor
+        id: monitor
+        continue-on-error: true
         env:
-          WATCH_SITE_URL: ${{ secrets.WATCH_SITE_URL }}
-          WATCH_SITE_TOKEN: ${{ secrets.WATCH_SITE_TOKEN }}
+          STATE_MASTER_KEY: ${{ secrets.WATCH_SITE_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           WATCH_MODE: ${{ inputs.mode || 'check' }}
-        run: python3 scripts/watch.py --mode "$WATCH_MODE"
+        run: node backend/run.mjs
+      - name: Report a monitoring failure
+        if: steps.monitor.outcome == 'failure'
+        run: echo '::warning::The monitor failed. Existing state was retained where possible; check the Site status and run logs.'
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  publish:
+    needs: watch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/deploy-pages@v4
+        id: deployment
 
   keepalive:
     runs-on: ubuntu-latest
