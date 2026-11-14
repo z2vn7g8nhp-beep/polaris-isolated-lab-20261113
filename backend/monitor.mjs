@@ -1,3 +1,4 @@
+import {sendPush,validateSubscription} from "./push.mjs";
 const HTML = "__HTML__";
 import SEED from "../bootstrap/movies.json" with { type: "json" };
 export const CINEMAS = [
@@ -68,14 +69,30 @@ async function bark(env,title,body){
   if(!response.ok)throw new Error('Bark 服务暂不可用');
   const result=await response.json();if(result.code!==200)throw new Error('Bark 拒绝推送，请检查设备 Key');
 }
+async function notificationMode(env){return await get(env,'notification_mode')||(await get(env,'push_subscription')?'push':await get(env,'bark')?'bark':'off')}
+async function notify(env,title,body,id,forcePush=false){
+  if(forcePush||await notificationMode(env)==='push'){
+    const subscription=await get(env,'push_subscription');
+    if(!subscription)throw new Error('请在主屏幕网站中重新启用手机通知');
+    try{await sendPush(env,subscription,{title,body,id});await set(env,'push_error',null)}
+    catch(error){
+      if([404,410].includes(error.statusCode)){await set(env,'push_subscription',null);await set(env,'push_error','通知连接已失效，请在主屏幕网站中重新启用；未发送提醒仍保留。')}
+      else await set(env,'push_error','手机通知发送失败，已保留提醒并安排重试。');
+      throw new Error('手机通知发送失败');
+    }
+    return;
+  }
+  await bark(env,title,body);
+}
 async function deliver(env){
-  if(!await get(env,'bark'))return;
+  const mode=await notificationMode(env);
+  if(mode==='off'||mode==='push'&&!await get(env,'push_subscription')||mode==='bark'&&!await get(env,'bark'))return;
   const events=(await q(env,`SELECT e.* FROM radar_events e LEFT JOIN radar_stars s ON e.movie_id=s.movie_id WHERE e.sent_at IS NULL AND e.cancelled=0 AND e.next_try<=? AND (e.movie_id IS NULL OR s.active=1) ORDER BY e.created_at LIMIT 8`,now()).all()).results;
   for(const e of events){
     // Re-read star immediately before IO so manual stop cancels queued work.
     if(e.movie_id){const star=await q(env,'SELECT active FROM radar_stars WHERE movie_id=?',e.movie_id).first();if(!star?.active)continue;const movie=await q(env,'SELECT data FROM radar_movies WHERE id=?',e.movie_id).first();if(movie&&!upcoming(JSON.parse(movie.data))){await q(env,'UPDATE radar_events SET cancelled=1 WHERE id=?',e.id).run();continue;}}
-    try{await bark(env,e.title,e.body);await q(env,'UPDATE radar_events SET sent_at=? WHERE id=?',now(),e.id).run();await set(env,'bark_error',null);}
-    catch(error){await q(env,'UPDATE radar_events SET attempts=attempts+1,next_try=? WHERE id=?',now()+Math.min(3600,60*2**Math.min(e.attempts,6)),e.id).run();await set(env,'bark_error','推送失败，已保留提醒并安排重试；可在设置中测试 Bark。');break;}
+    try{await notify(env,e.title,e.body,e.id);await q(env,'UPDATE radar_events SET sent_at=? WHERE id=?',now(),e.id).run();await set(env,'bark_error',null);}
+    catch(error){await q(env,'UPDATE radar_events SET attempts=attempts+1,next_try=? WHERE id=?',now()+Math.min(3600,60*2**Math.min(e.attempts,6)),e.id).run();if(mode==='bark')await set(env,'bark_error','推送失败，已保留提醒并安排重试；可在设置中测试 Bark。');break;}
   }
 }
 async function ingestCinema(env,data,cinema){
@@ -107,14 +124,17 @@ async function ingestCinema(env,data,cinema){
   await set(env,'cinema_'+cinema.id,{checked:now(),movies:movies.length,sessions:rows.length});
   return {cinema:cinema.short,movies:movies.length,sessions:rows.length,newNotifications:groups.size};
 }
-async function updateCatalog(env){
+export async function updateCatalog(env){
   let job=await get(env,'catalog_job');
+  const needsComing=(await get(env,'coming_ids'))===null;
+  if(needsComing&&job?.which==='released')job=null;
   if(!job){
-    const which=await get(env,'catalog_next','upcoming');
+    const which=needsComing?'upcoming':await get(env,'catalog_next','upcoming');
     const data=await source(which==='upcoming'?'comingList?ci=42&token=&limit=12':'movieOnInfoList?ci=42');
     const list=which==='upcoming'?data.coming:data.movieList;
-    if(!Array.isArray(list)||!Array.isArray(data.movieIds)||!list.length)throw new RiskError('片库响应异常，已暂停以免重复请求');
-    await env.DB.batch(movieStatements(env,list));
+    if(!Array.isArray(list)||!Array.isArray(data.movieIds))throw new RiskError('片库响应异常，已暂停以免重复请求');
+    if(list.length)await env.DB.batch(movieStatements(env,list));
+    if(which==='upcoming'){await set(env,'coming_ids',data.movieIds.map(String));await set(env,'coming_updated',now())}
     const loaded=new Set(list.map(m=>String(m.id)));
     job={which,remaining:data.movieIds.filter(id=>!loaded.has(String(id)))};
   }else{
@@ -139,7 +159,7 @@ async function tick(env){
     }
     const catalogJob=await get(env,'catalog_job');
     const catalogDue=(await get(env,'catalog_due',now()+6*3600))<now();
-    if(catalogJob||catalogDue)await updateCatalog(env);
+    if(catalogJob||catalogDue||(await get(env,'coming_ids'))===null)await updateCatalog(env);
     const result={cinema:'两家影院',newNotifications:checks.reduce((n,c)=>n+c.newNotifications,0),checks};
     await set(env,'last_success',now());await set(env,'last_error',null);await set(env,'failures',0);
     await deliver(env);return result;
@@ -157,9 +177,10 @@ async function tick(env){
 }
 async function state(env){
   await seed(env);
-  const movies=(await q(env,'SELECT m.*,s.active FROM radar_movies m LEFT JOIN radar_stars s ON m.id=s.movie_id').all()).results.map(r=>{const m=JSON.parse(r.data);return {id:String(m.id),name:m.nm,img:m.img,release:m.rt||m.comingTitle||'档期待定',upcoming:upcoming(m),wish:m.wish||0,score:m.sc||0,actors:m.star||'',active:r.active===1};}).sort((a,b)=>Number(b.upcoming)-Number(a.upcoming)||b.wish-a.wish);
+  const comingIds=await get(env,'coming_ids');const comingOrder=new Map((comingIds||[]).map((id,i)=>[String(id),i]));
+  const movies=(await q(env,'SELECT m.*,s.active FROM radar_movies m LEFT JOIN radar_stars s ON m.id=s.movie_id').all()).results.map(r=>{const m=JSON.parse(r.data);return {id:String(m.id),name:m.nm,img:m.img,release:m.rt||m.comingTitle||'档期待定',upcoming:upcoming(m),coming:comingIds===null?upcoming(m):comingOrder.has(String(m.id)),comingOrder:comingOrder.get(String(m.id))??99999,comingTitle:m.comingTitle||'',wish:Number(m.wish)||0,score:Number(m.sc)||0,actors:m.star||'',active:r.active===1};}).sort((a,b)=>Number(b.upcoming)-Number(a.upcoming)||b.wish-a.wish);
   const events=(await q(env,'SELECT id,movie_id,kind,title,body,created_at,sent_at,attempts,cancelled FROM radar_events ORDER BY created_at DESC LIMIT 60').all()).results;
-  return {movies,events,cinemas:CINEMAS,paused:await get(env,'paused'),lastSuccess:await get(env,'last_success'),lastError:await get(env,'last_error'),nextRequest:await get(env,'next_request'),barkConfigured:!!await get(env,'bark'),barkError:await get(env,'bark_error'),catalogUpdated:await get(env,'catalog_updated'),catalogJob:await get(env,'catalog_job'),checks:await Promise.all(CINEMAS.map(c=>get(env,'cinema_'+c.id))),schedule:await get(env,'schedule',null),schedulerHeartbeat:await get(env,'scheduler_heartbeat',null)};
+  return {movies,events,comingTotal:comingIds?.length??movies.filter(m=>m.coming).length,comingSourceReady:comingIds!==null,comingUpdated:await get(env,'coming_updated'),pushConfigured:!!await get(env,'push_subscription'),pushError:await get(env,'push_error'),notificationMode:await notificationMode(env),cinemas:CINEMAS,paused:await get(env,'paused'),lastSuccess:await get(env,'last_success'),lastError:await get(env,'last_error'),nextRequest:await get(env,'next_request'),barkConfigured:!!await get(env,'bark'),barkError:await get(env,'bark_error'),catalogUpdated:await get(env,'catalog_updated'),catalogJob:await get(env,'catalog_job'),checks:await Promise.all(CINEMAS.map(c=>get(env,'cinema_'+c.id))),schedule:await get(env,'schedule',null),schedulerHeartbeat:await get(env,'scheduler_heartbeat',null)};
 }
 async function api(req,env,path){
   if(req.method==='GET'&&path==='/api/state')return json(await state(env));
@@ -176,10 +197,15 @@ async function api(req,env,path){
   }
   if(path==='/api/bark'){
     if(typeof body.key!=='string'||!/^[A-Za-z0-9_-]{8,200}$/.test(body.key))throw new Error('请输入 Bark App 中的设备 Key，而不是完整网址');
-    await set(env,'bark',await crypt(env,body.key));await set(env,'bark_error',null);return json({ok:true});
+    await set(env,'bark',await crypt(env,body.key));await set(env,'bark_error',null);await set(env,'notification_mode','bark');return json({ok:true});
   }
   if(path==='/api/bark/remove'){await set(env,'bark',null);return json({ok:true});}
   if(path==='/api/bark/test'){await bark(env,'开票雷达 · 测试成功','西安 MOMOPARK UME / 荟聚寰映\n独立分组，不影响你已有的 Bark 推送。');return json({ok:true});}
+  if(path==='/api/push'){
+    await set(env,'push_subscription',validateSubscription(body.subscription));await set(env,'notification_mode','push');await set(env,'push_error',null);return json({ok:true});
+  }
+  if(path==='/api/push/remove'){await set(env,'push_subscription',null);await set(env,'notification_mode','off');return json({ok:true});}
+  if(path==='/api/push/test'){await notify(env,'开票雷达 · 手机通知测试','收到这条通知，说明这台设备的系统通知可以正常接收。',crypto.randomUUID(),true);return json({ok:true});}
   if(path==='/api/tick'){const result=await tick(env);if(body.source==='github-actions')await set(env,'scheduler_heartbeat',now());return json(result);}
   if(path==='/api/pause'){await set(env,'paused','你已手动暂停监测；星标保留。');return json({ok:true});}
   if(path==='/api/resume'){await set(env,'paused',null);return json({ok:true});}
@@ -205,5 +231,5 @@ export default {async fetch(req,env,ctx){
     if(path.startsWith('/api/'))return await api(req,env,path);
     if(path==='/')return new Response(HTML,{headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Frame-Options':'SAMEORIGIN','Referrer-Policy':'no-referrer'}});
     return new Response('Not found',{status:404});
-  }catch(error){return json({error:error.message?.includes('Bark')?error.message:'操作暂未完成，请稍后重试。'},500);}
+  }catch(error){return json({error:(error.message?.includes('Bark')||error.message?.includes('通知')||error.message?.includes('订阅'))?error.message:'操作暂未完成，请稍后重试。'},500);}
 }};

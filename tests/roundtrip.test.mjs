@@ -19,6 +19,7 @@ test('independent runner retains stars, deduplication and queued alerts across e
     const runtime=await createRuntime({master,identity,path:join(dir,'first.sqlite')});
     const movie={id:111,nm:'测试未上映片',rt:'2030-10-01',globalReleased:false};
     runtime.env.db.prepare('INSERT INTO radar_movies VALUES (?,?,?)').run('111',JSON.stringify(movie),1);
+    runtime.env.db.prepare('INSERT INTO radar_kv VALUES (?,?)').run('coming_ids',JSON.stringify(['111']));
     let calls=0;
     globalThis.fetch=async url=>{
       assert.match(String(url),/^https:\/\/m\.maoyan\.com\/ajax\//);

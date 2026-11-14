@@ -3,6 +3,7 @@ import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {keyBytes,seal,unseal,openPreferences} from '../docs/crypto.mjs';
 import worker from './monitor.mjs';
+import {vapidKeys} from './push.mjs';
 
 export function dbEnv(path=':memory:', master='test-only') {
   const db=new DatabaseSync(path);
@@ -13,6 +14,7 @@ export function dbEnv(path=':memory:', master='test-only') {
     async run(){const r=db.prepare(sql).run(...args);return {meta:{changes:Number(r.changes)}}}
   };}
   return {db,DB:{prepare:stmt,async batch(stmts){db.exec('BEGIN');try{const r=[];for(const s of stmts)r.push(await s.run());db.exec('COMMIT');return r}catch(e){db.exec('ROLLBACK');throw e}}},
+    PUSH_KEYS:vapidKeys(master),
     BARK_ENCRYPTION_KEY:createHash('sha256').update('polaris-bark:'+master).digest('base64')};
 }
 export async function call(env,path,body) {
@@ -29,19 +31,26 @@ export async function applyPreferences(env,prefs) {
   const current=await call(env,'state');
   const wanted=new Set(prefs.stars);
   for(const movie of current.movies)if(Boolean(movie.active)!==wanted.has(movie.id))await call(env,'star',{id:movie.id,active:wanted.has(movie.id)});
-  if(Object.hasOwn(prefs,'barkKey')) {
+  const signature=v=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
+  if(Object.hasOwn(prefs,'barkKey')&&signature(prefs.barkKey)!==value(env,'bark_signature')) {
     if(prefs.barkKey===null)await call(env,'bark/remove',{});
     else if(typeof prefs.barkKey==='string')await call(env,'bark',{key:prefs.barkKey});
     else throw new Error('Bark 配置格式无效');
+    set(env,'bark_signature',signature(prefs.barkKey));
   }
+  if(Object.hasOwn(prefs,'pushSubscription')&&signature(prefs.pushSubscription)!==value(env,'push_signature')){
+    await call(env,prefs.pushSubscription===null?'push/remove':'push',prefs.pushSubscription===null?{}:{subscription:prefs.pushSubscription});
+    set(env,'push_signature',signature(prefs.pushSubscription));
+  }
+  if(['push','bark','off'].includes(prefs.notificationMode))set(env,'notification_mode',prefs.notificationMode);
   const control=prefs.control;
   if(control&&control.id!==value(env,'last_control')&&['pause','resume'].includes(control.action)) {
     await call(env,control.action,{});set(env,'last_control',control.id);
   }
   const request=prefs.request;
-  if(request?.id&&request.id!==value(env,'last_request')&&request.action==='bark/test') {
-    try{await call(env,'bark/test',{});set(env,'request_result',{id:request.id,ok:true})}
-    catch{set(env,'request_result',{id:request.id,ok:false,message:'测试推送失败，请检查 Bark Key 或服务状态。'})}
+  if(request?.id&&request.id!==value(env,'last_request')&&['bark/test','push/test'].includes(request.action)) {
+    try{await call(env,request.action,{});set(env,'request_result',{id:request.id,ok:true})}
+    catch{set(env,'request_result',{id:request.id,ok:false,message:'测试推送失败，请检查通知权限、连接或推送服务状态。'})}
     set(env,'last_request',request.id);
   }
   set(env,'preferences_revision',prefs.revision);return true;
@@ -49,7 +58,7 @@ export async function applyPreferences(env,prefs) {
 export function publicView(state) {
   return {movies:state.movies.map(({active,...movie})=>movie),cinemas:state.cinemas,
     lastSuccess:state.lastSuccess,lastError:state.lastError,checks:state.checks,
-    catalogUpdated:state.catalogUpdated,schedule:{provider:'github-actions',frequency:'five_minutes'}};
+    catalogUpdated:state.catalogUpdated,comingTotal:state.comingTotal,comingSourceReady:state.comingSourceReady,comingUpdated:state.comingUpdated,schedule:{provider:'github-actions',frequency:'five_minutes'}};
 }
 export async function createRuntime({master,identity,snapshot,path}) {
   const masterKey=await keyBytes(master,'server');

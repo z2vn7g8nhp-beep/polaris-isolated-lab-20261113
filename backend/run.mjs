@@ -1,4 +1,5 @@
 import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
+import {vapidKeys} from './push.mjs';
 import {createRuntime,processRun} from './storage.mjs';
 
 const repo=process.env.GITHUB_REPOSITORY;
@@ -27,6 +28,7 @@ async function persist(files) {
     if(!r.ok)throw new Error(`State save HTTP ${r.status}`);
   }
 }
+mkdirSync('docs/data',{recursive:true});writeFileSync('docs/data/push-key.json',JSON.stringify({publicKey:vapidKeys(master).publicKey}));
 const snapshot=await content('backend.enc.json','monitor-state');
 // Existing state must never be treated as first-run when GitHub is unavailable.
 if(!snapshot){const ref=await api('/git/ref/heads/monitor-state',undefined,false,true);if(ref)throw new Error('Existing monitor state is incomplete; refusing a clean start.');}

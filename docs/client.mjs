@@ -64,16 +64,21 @@ export async function load(){
   }
   const starred=new Set(prefs?.stars||[]);
   return {...base,...(latest||{}),movies:base.movies.map(m=>({...m,active:starred.has(m.id)})),
-    events:latest?.events||[],barkConfigured:Object.hasOwn(prefs||{},'barkKey')?Boolean(prefs.barkKey):Boolean(latest?.barkConfigured),
+    events:latest?.events||[],pushConfigured:latest?.processedRevision===prefs?.revision?Boolean(latest?.pushConfigured):Boolean(prefs?.pushSubscription||latest?.pushConfigured),
+    notificationMode:prefs?.notificationMode||latest?.notificationMode||'off',
+    barkConfigured:Object.hasOwn(prefs||{},'barkKey')?Boolean(prefs.barkKey):Boolean(latest?.barkConfigured),
     paused:prefs?.control?.action==='pause'&&pending()?'暂停请求待后台处理':latest?.paused||null,
     connected:Boolean(token),pending:pending(),requestResult:latest?.requestResult};
 }
 export async function api(path,body){
   if(path==='state')return load();
   if(path==='star')return update(p=>{const stars=new Set(p.stars);body.active?stars.add(body.id):stars.delete(body.id);p.stars=[...stars];return p});
-  if(path==='bark')return update(p=>{if(!/^[A-Za-z0-9_-]{8,200}$/.test(body.key))throw new Error('请输入 Bark 设备 Key，而不是完整网址');p.barkKey=body.key;return p});
+  if(path==='bark')return update(p=>{if(!/^[A-Za-z0-9_-]{8,200}$/.test(body.key))throw new Error('请输入 Bark 设备 Key，而不是完整网址');p.barkKey=body.key;p.notificationMode='bark';return p});
   if(path==='bark/remove')return update(p=>{p.barkKey=null;return p});
   if(path==='pause'||path==='resume')return update(p=>{p.control={id:crypto.randomUUID(),action:path};return p});
+  if(path==='push')return update(p=>{p.pushSubscription=body.subscription;p.notificationMode='push';return p});
+  if(path==='push/remove')return update(p=>{p.pushSubscription=null;p.notificationMode='off';return p});
+  if(path==='push/test')return update(p=>{p.request={id:crypto.randomUUID(),action:path};return p});
   if(path==='bark/test')return update(p=>{p.request={id:crypto.randomUUID(),action:path};return p});
   if(path==='tick'){if(!token)throw new Error('请先连接 GitHub');await trigger();return {queued:true}}
   throw new Error('不支持的操作');
