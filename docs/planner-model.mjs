@@ -4,6 +4,11 @@ const object = (v) => v && typeof v === "object" && !Array.isArray(v);
 export const validDay = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().slice(0, 10) === v;
 const clock = (v) => typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
 const numericId = (v) => typeof v === "string" && /^\d+$/.test(v);
+export function watchdogFreshness(status, at = Date.now() / 1000) {
+  if (!Number.isFinite(status?.checkedAt)) return { kind: "unknown", minutes: null };
+  const minutes = Math.max(0, Math.floor((at - status.checkedAt) / 60));
+  return { kind: at - status.checkedAt >= 20 * 60 ? "stale" : "recent", minutes };
+}
 const boundedText = (v, max, label) => {
   if (typeof v !== "string" || v.length > max) throw new Error(`${label}格式无效`);
   return v.trim();

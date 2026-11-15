@@ -72,8 +72,14 @@ jobs:
     timeout-minutes: 2
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v4
+      - name: Independently check watchdog freshness and trigger fallback
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node backend/watchdog-trigger.mjs
       - name: Keep only this scheduler repository active
         run: |
           python3 - <<'PY'

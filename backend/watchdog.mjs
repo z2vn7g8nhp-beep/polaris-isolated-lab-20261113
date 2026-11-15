@@ -41,25 +41,51 @@ export async function checkWatchdog({ env, prefs, previous = {}, at = Date.now()
   }
   const notificationConfigured = mode !== "off";
   let notificationError = null;
-  if (health.kind === "outage" && !state.incident) state.incident = { id: "watchdog-" + crypto.randomUUID(), detectedAt: at, alertAcceptedAt: null };
-  const incident = state.incident;
-  const recovery = health.kind === "healthy" && incident?.alertAcceptedAt;
+  if (health.kind === "outage" && (!state.incident || state.incident.phase === "recovery"))
+    state.incident = { id: "watchdog-" + crypto.randomUUID(), phase: "outage", channel: mode, legacyEndpoint: get(env, "push_subscription")?.endpoint || null, detectedAt: at, alertAcceptedAt: null };
+  let incident = state.incident;
+  const alertReceipts = incident ? state.receipts[incident.id] || [] : [];
+  if (health.kind === "healthy" && incident) {
+    if (incident.alertAcceptedAt || alertReceipts.length) {
+      incident.phase = "recovery";
+      incident.recoveryDetectedAt ||= at;
+      incident.recoveryRecipients ||= [...alertReceipts];
+      // A newly selected channel or device must not receive recovery for an
+      // outage it never received. Removed devices are no longer contacted.
+      if ((incident.channel && incident.channel !== mode) ||
+          (incident.legacyEndpoint && get(env, "push_subscription")?.endpoint !== incident.legacyEndpoint)) state.incident = null;
+    } else state.incident = null;
+  }
+  incident = state.incident;
+  const recovery = health.kind === "healthy" && incident?.phase === "recovery";
   const alert = health.kind === "outage" && incident && !incident.alertAcceptedAt;
   if ((alert || recovery) && notificationConfigured) {
     const id = recovery ? incident.id + "-recovery" : incident.id;
-    const createdAt = recovery ? (incident.recoveryDetectedAt ||= at) : incident.detectedAt;
+    const createdAt = recovery ? incident.recoveryDetectedAt : incident.detectedAt;
     const plan = notificationDue({ kind: "watchdog", created_at: createdAt }, {}, config, at);
     if (plan.due <= at) {
-      put(env, "delivery_" + id, state.receipts[id] || []);
-      try {
-        await sender(env, recovery ? "开票雷达 · 检查已恢复" : "开票雷达 · 检查长时间未更新", recovery ? "影院检查已恢复成功。打开监测与推送查看最新检查时间。" : `已约 ${Math.floor(health.ageMinutes)} 分钟没有成功完成检查。独立任务检测到失联，请打开监测与推送查看状态。`, id, false, null, id, "settings");
-        if (recovery) { state.lastRecoveryAt = at; state.incident = null; }
-        else { incident.alertAcceptedAt = at; state.lastAlertAt = at; }
-      } catch { notificationError = "告警推送失败，将在下次独立检查时重试"; }
-      state.receipts[id] = get(env, "delivery_" + id, []);
+      const allDevices = get(env, "push_devices");
+      const targeted = recovery && mode === "push" && Array.isArray(allDevices);
+      const recipients = targeted ? allDevices.filter((d) => !d.expired && incident.recoveryRecipients.includes(d.registration)) : null;
+      if (targeted && !recipients.length) state.incident = null;
+      else {
+        put(env, "delivery_" + id, state.receipts[id] || []);
+        if (targeted) put(env, "push_devices", recipients);
+        try {
+          await sender(env, recovery ? "开票雷达 · 检查已恢复" : "开票雷达 · 检查长时间未更新", recovery ? "影院检查已恢复成功。打开监测与推送查看最新检查时间。" : `已约 ${Math.floor(health.ageMinutes)} 分钟没有成功完成检查。独立任务检测到失联，请打开监测与推送查看状态。`, id, false, null, id, "settings");
+          if (recovery) { state.lastRecoveryAt = at; state.incident = null; }
+          else { incident.alertAcceptedAt = at; state.lastAlertAt = at; }
+        } catch { notificationError = "部分设备推送失败，下次独立检查会跳过已接收设备并重试"; }
+        finally {
+          state.receipts[id] = get(env, "delivery_" + id, []);
+          if (targeted) {
+            const updated = get(env, "push_devices", []);
+            put(env, "push_devices", allDevices.map((d) => updated.find((u) => u.registration === d.registration) || d));
+          }
+        }
+      }
     }
   }
-  if (health.kind === "healthy" && state.incident && !state.incident.alertAcceptedAt) state.incident = null;
   const receiptIds = Object.keys(state.receipts);
   for (const id of receiptIds.slice(0, Math.max(0, receiptIds.length - 12))) delete state.receipts[id];
   return { state, publicStatus: { checkedAt: at, health: health.kind, lastSuccess, thresholdMinutes: config.watchdogMinutes, incidentActive: health.kind === "outage", alertAcceptedAt: state.lastAlertAt || null, recoveryAcceptedAt: state.lastRecoveryAt || null, notificationConfigured, notificationError } };

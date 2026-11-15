@@ -1,6 +1,6 @@
-import { installPlanner, sessionOverview, journalView, plannerSettings } from "./planner.mjs?v=planner-1";
-import { countdownHero, installCountdown } from "./countdown.mjs?v=planner-1";
-import { captureFocus, restoreFocus } from "./dom-state.mjs";
+import { installPlanner, sessionOverview, journalView, plannerSettings } from "./planner.mjs?v=optimize-1";
+import { countdownHero, installCountdown } from "./countdown.mjs?v=optimize-1";
+import { captureFocus, restoreFocus, captureDrafts, restoreDrafts, patchHTML } from "./dom-state.mjs?v=optimize-1";
 import { monitorEligible, visibleMovies } from "./rules.mjs?v=planner-1";
 import {
   installFeatures,
@@ -13,15 +13,15 @@ import {
   eventView,
   browsing,
   restoreBrowsing,
-} from "./features.mjs?v=planner-1";
-import { api, connect, disconnect, deviceId } from "./client.mjs?v=planner-1";
+} from "./features.mjs?v=optimize-1";
+import { api, connect, disconnect, deviceId } from "./client.mjs?v=optimize-1";
 import {
   pushSupport,
   enablePhonePush,
   disablePhonePush,
-} from "./push.mjs?v=planner-1";
+} from "./push.mjs?v=optimize-1";
 import { isComing, groupComing, posterUrl } from "./catalog.mjs?v=calm-1";
-import { checkHealth } from "./status.mjs?v=calm-1";
+import { checkHealth } from "./status.mjs?v=optimize-1";
 import { icon, wishCount, rememberDisclosures, restoreDisclosures } from "./ui.mjs?v=journal-3";
 let data = null,
   view = ["library", "sessions", "stars", "journal", "events", "settings"].includes(
@@ -60,7 +60,8 @@ const features = installFeatures({
   rerender: () => render(),
   toast: (text) => toast(text),
 });
-installPlanner({ getData: () => data, refresh: load, rerender: () => render(), toast });
+const planner = installPlanner({ getData: () => data, refresh: load, rerender: () => render(), toast });
+let frame = null, renderedView = null;
 function toast(text) {
   $("#toast").textContent = text;
   document.querySelectorAll(".dialog-toast").forEach((el) => el.remove());
@@ -88,44 +89,17 @@ function time(t) {
     : "尚未检查";
 }
 function showState(next) {
-  const previousConnected = data?.connected;
+  const changedConnection = data && data.connected !== next.connected;
   data = next;
-  const content = $("#content"),
-    focus = captureFocus(content);
-  const drafts = [
-    ...content.querySelectorAll(
-      "input[data-dirty],select[data-dirty],textarea[data-dirty]",
-    ),
-  ].map((el) => ({
-    id: el.id,
-    form: el.form?.id,
-    value: el.value,
-    checked: el.checked,
-    type: el.type,
-  }));
-  const scroll = window.scrollY,
-    strip = $(".expected-strip")?.scrollLeft;
-  render();
-  for (const d of drafts) {
-    const el = document.getElementById(d.id);
-    if (
-      el &&
-      el.form?.id === d.form &&
-      !(d.type === "password" && previousConnected !== next.connected)
-    ) {
-      el.value = d.value;
-      el.checked = d.checked;
-      el.dataset.dirty = "true";
-    }
-  }
-  if (strip && $(".expected-strip")) $(".expected-strip").scrollLeft = strip;
-  restoreFocus(content, focus);
-  window.scrollTo(0, scroll);
+  if (changedConnection) planner.resetSession();
+  if (changedConnection) document.querySelectorAll('input[type="password"][data-dirty]').forEach((el) => { delete el.dataset.dirty; el.value = ""; });
+  if (frame === null) frame = requestAnimationFrame(() => { frame = null; render(); });
 }
 
 async function load() {
   try {
-    showState(await api("state", { onUpdate: showState }));
+    showState(await api("state"));
+    if (frame !== null) { cancelAnimationFrame(frame); frame = null; render(); }
   } catch (e) {
     if (!data)
       $("#content").innerHTML =
@@ -183,7 +157,7 @@ function baseMovies() {
 function renderCards() {
   if (!data || !$("#cards")) return;
   const list = selection(baseMovies(), search);
-  $("#cards").innerHTML = list.length
+  const cardsHTML = list.length
     ? filter === "upcoming" && browsing.sort === "release"
       ? comingList(list)
       : list.map(card).join("")
@@ -196,6 +170,7 @@ function renderCards() {
         ? "在片库点击 ☆，待上映电影每轮新开票都会提醒。"
         : "试试其他片名，或清除日期与分类筛选。") +
       "</p></div>";
+  patchHTML($("#cards"), cardsHTML);
   $("#listcount").textContent =
     `共 ${list.length} 部${view === "stars" ? "星标电影" : "电影"} · ${{ release: "按上映日期", wish: "按想看热度", score: "按评分" }[browsing.sort]}排列 · 数据来自猫眼`;
 }
@@ -233,6 +208,12 @@ function events() {
   return eventView(data);
 }
 function render() {
+  if (!data) return;
+  if (frame !== null) { cancelAnimationFrame(frame); frame = null; }
+  const content = $("#content"), sameView = renderedView === view;
+  const focus = sameView ? captureFocus(content) : null;
+  const drafts = sameView ? captureDrafts(content) : [];
+  const scroll = window.scrollY, strip = $(".expected-strip")?.scrollLeft;
   const names = {
     library: "电影片库",
     stars: "我的星标",
@@ -252,11 +233,17 @@ function render() {
     else b.removeAttribute("aria-current");
   });
   rememberDisclosures($("#content"));
-  $("#content").innerHTML =
+  const html =
     view === "settings" ? settings() : view === "events" ? events() : view === "sessions" ? sessionOverview(data) : view === "journal" ? journalView(data) : library();
+  if (sameView) patchHTML(content, html, { preserveChildren: ["cards", "listcount"] });
+  else content.innerHTML = html;
+  renderedView = view;
   if (view === "library" || view === "stars") renderCards();
   restoreDisclosures($("#content"));
+  restoreDrafts(content, drafts);
   features.afterRender();
+  planner.afterRender();
+  if (sameView) { if (strip && $(".expected-strip")) $(".expected-strip").scrollLeft = strip; restoreFocus(content, focus); window.scrollTo(0, scroll); }
   remember();
 }
 document.addEventListener("input", (e) => {
@@ -264,8 +251,11 @@ document.addEventListener("input", (e) => {
     search = e.target.value;
     renderCards();
     remember();
-  } else if (e.target.id && e.target.closest("#content"))
+  } else if (e.target.matches("input,select,textarea") && e.target.closest("#content, #movie-dialog, #entry-dialog"))
     e.target.dataset.dirty = "true";
+});
+document.addEventListener("change", (e) => {
+  if (e.target.matches("input,select,textarea") && e.target.closest("#content, #movie-dialog, #entry-dialog")) e.target.dataset.dirty = "true";
 });
 document.addEventListener("submit", async (e) => {
   if (e.target.id !== "barkform") return;

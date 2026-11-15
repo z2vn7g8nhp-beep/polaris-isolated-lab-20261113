@@ -1,8 +1,8 @@
-import { moviePlanner, ruleTemplateControls } from "./planner.mjs?v=planner-1";
+import { moviePlanner, ruleTemplateControls } from "./planner.mjs?v=optimize-1";
 import { icon, wishCount, rememberDisclosures, restoreDisclosures } from "./ui.mjs?v=journal-3";
 import { posterUrl } from "./catalog.mjs?v=calm-1";
-import { captureFocus, restoreFocus } from "./dom-state.mjs";
-import { api, rotateToken, deviceId } from "./client.mjs?v=planner-1";
+import { captureFocus, restoreFocus } from "./dom-state.mjs?v=optimize-1";
+import { api, rotateToken, deviceId } from "./client.mjs?v=optimize-1";
 import {
   chinaDay,
   countdown,

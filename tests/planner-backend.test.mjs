@@ -94,6 +94,43 @@ test("watchdog retains accepted-device receipts across its independent retries",
   assert.ok(output.state.incident.alertAcceptedAt);
   assert.match(sent[0].body.url, /view=settings/);
 });
+test("partial outage delivery still recovers the accepted devices and excludes devices that never saw the outage", async (t) => {
+  const e = env(t), at = Math.floor(Date.now() / 1000);
+  put(e, "last_success", at - 2000); put(e, "notification_mode", "push"); put(e, "push_devices", [device("a"), device("b")]);
+  const sent = [];
+  e.PUSH_SEND = async (sub, body) => { if (sub.endpoint.endsWith("/b")) throw new Error("temporary"); sent.push({ endpoint: sub.endpoint, body: JSON.parse(body) }); };
+  const first = await checkWatchdog({ env: e, prefs: {}, at });
+  assert.equal(first.state.incident.alertAcceptedAt, null);
+  put(e, "last_success", at + 1);
+  const recovered = await checkWatchdog({ env: e, prefs: {}, previous: first.state, at: at + 2 });
+  assert.equal(recovered.state.incident, null);
+  assert.equal(sent.filter((s) => s.body.title.includes("已恢复")).length, 1);
+  assert.ok(sent.every((s) => s.endpoint.endsWith("/a")));
+  assert.equal(JSON.parse(e.db.prepare("SELECT value FROM radar_kv WHERE key='push_devices'").get().value).length, 2);
+});
+test("recovery retries skip accepted devices and a new outage starts a new incident", async (t) => {
+  const e = env(t), at = Math.floor(Date.now() / 1000);
+  put(e, "last_success", at - 2000); put(e, "notification_mode", "push"); put(e, "push_devices", [device("a"), device("b")]);
+  let failRecovery = false; const sent = [];
+  e.PUSH_SEND = async (sub, body) => {
+    const message = JSON.parse(body);
+    if (failRecovery && sub.endpoint.endsWith("/b") && message.title.includes("已恢复")) throw new Error("temporary");
+    sent.push({ endpoint: sub.endpoint, message });
+  };
+  let output = await checkWatchdog({ env: e, prefs: {}, at });
+  put(e, "last_success", at + 1); failRecovery = true;
+  output = await checkWatchdog({ env: e, prefs: {}, previous: output.state, at: at + 2 });
+  assert.equal(output.state.incident.phase, "recovery");
+  failRecovery = false;
+  output = await checkWatchdog({ env: e, prefs: {}, previous: output.state, at: at + 3 });
+  assert.equal(output.state.incident, null);
+  assert.equal(sent.filter((s) => s.endpoint.endsWith("/a") && s.message.title.includes("已恢复")).length, 1);
+  assert.equal(sent.filter((s) => s.endpoint.endsWith("/b") && s.message.title.includes("已恢复")).length, 1);
+  put(e, "last_success", at - 2000);
+  output = await checkWatchdog({ env: e, prefs: {}, previous: output.state, at: at + 4 });
+  assert.ok(output.state.incident);
+  assert.equal(sent.filter((s) => s.message.title.includes("未更新")).length, 4);
+});
 test("long bilingual and emoji notifications fit the duplicated declarative Web Push payload", async (t) => {
   const e = env(t); let text;
   e.PUSH_SEND = async (_, value) => { text = value; };

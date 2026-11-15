@@ -29,6 +29,7 @@ const personalFields = [
   "paused",
   "nextRequest",
   "processedRevision",
+  "processedMonitorRevision",
   "requestResult",
   "pushDevices",
   "movieRules",

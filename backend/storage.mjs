@@ -85,6 +85,7 @@ export async function applyPreferences(env, prefs) {
   )
     throw new Error("偏好数据格式无效");
   if (value(env, "preferences_revision") === prefs.revision) return false;
+  if (prefs.monitorRevision !== undefined && (typeof prefs.monitorRevision !== "string" || prefs.monitorRevision.length > 100)) throw new Error("监测配置版本无效");
   const planner = normalizePlannerPrefs(prefs);
   const rules = {};
   if (prefs.movieRules !== undefined) {
@@ -245,6 +246,7 @@ export async function applyPreferences(env, prefs) {
     set(env, "last_request", request.id);
   }
   set(env, "preferences_revision", prefs.revision);
+  set(env, "monitor_revision", prefs.monitorRevision ?? prefs.revision);
   return true;
 }
 export function publicView(state) {
@@ -325,6 +327,7 @@ export async function processRun(runtime, envelope, { mode = "check" } = {}) {
   const personal = {
     ...state,
     processedRevision: value(env, "preferences_revision"),
+    processedMonitorRevision: value(env, "monitor_revision", value(env, "preferences_revision")),
     requestResult: value(env, "request_result"),
   };
   const publicData = publicView(state);

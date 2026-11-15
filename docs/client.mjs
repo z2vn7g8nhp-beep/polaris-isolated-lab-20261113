@@ -1,7 +1,7 @@
 import { normalizeRule } from "./rules.mjs?v=planner-1";
 import { keyBytes, sealPreferences, unseal } from "./crypto.mjs";
-import { newerPublic, mergeStatus } from "./status.mjs?v=calm-1";
-import { normalizePlannerPrefs, normalizeNotificationPrefs, normalizeTemplates, normalizeFilmJournal, normalizeJournalEntry, templatesFor } from "./planner-model.mjs?v=planner-1";
+import { newerPublic, mergeStatus } from "./status.mjs?v=optimize-1";
+import { normalizePlannerPrefs, normalizeNotificationPrefs, normalizeTemplates, normalizeFilmJournal, normalizeJournalEntry, templatesFor } from "./planner-model.mjs?v=optimize-1";
 const REPO = "z2vn7g8nhp-beep/polaris-isolated-lab-20261113";
 const API = `https://api.github.com/repos/${REPO}`;
 const storageKey = "polaris.github-token.v1";
@@ -86,7 +86,9 @@ function serial(work) {
 }
 export const connected = () => Boolean(token);
 export const pending = () =>
-  Boolean(prefs && latest?.processedRevision !== prefs.revision);
+  Boolean(prefs && (Object.hasOwn(prefs, "monitorRevision") ? prefs.monitorRevision : prefs.revision) &&
+    (latest?.processedMonitorRevision ?? latest?.processedRevision) !==
+    (Object.hasOwn(prefs, "monitorRevision") ? prefs.monitorRevision : prefs.revision));
 export const repository = REPO;
 async function request(
   path,
@@ -233,7 +235,7 @@ async function trigger(ctx = session()) {
     credential: ctx.token,
   });
 }
-async function update(change) {
+async function update(change, { monitor = true } = {}) {
   const ctx = session();
   if (!ctx.token)
     throw new Error("先到「监测与推送」连接 GitHub；只需设置一次");
@@ -257,8 +259,10 @@ async function update(change) {
   const saved = await readPreferences(ctx);
   checkSession(ctx);
   const changed = change(structuredClone(saved.value));
-  normalizePlannerPrefs(changed);
   changed.revision = crypto.randomUUID();
+  changed.monitorRevision = monitor ? changed.revision :
+    Object.hasOwn(saved.value, "monitorRevision") ? saved.value.monitorRevision : saved.value.revision;
+  normalizePlannerPrefs(changed);
   const publicKey = await (
     await fetch("./data/public-key.json", {
       cache: "no-store",
@@ -283,7 +287,7 @@ async function update(change) {
   envelopes.preferences = envelope;
   writeCache(personalCacheKey, envelopes);
   try {
-    await trigger(ctx);
+    if (monitor) await trigger(ctx);
   } catch (error) {
     checkSession(ctx);
     window.dispatchEvent(
@@ -294,7 +298,7 @@ async function update(change) {
   }
   checkSession(ctx);
   publish();
-  return { queued: true };
+  return { queued: monitor, synced: true };
 }
 function currentState() {
   if (!base) return null;
@@ -554,7 +558,19 @@ export async function api(path, body) {
         return p;
       }),
     );
-  if (["planner/settings", "template/save", "template/delete", "template/default", "template/apply", "journal/save", "journal/entry", "journal/entry-state", "journal/remove-entry"].includes(path))
+  if (path === "journal/remove-entry") return serial(async () => {
+    let undo;
+    const result = await update((p) => {
+      const record = p.filmJournal?.[body.id];
+      const index = record?.entries.findIndex((e) => e.id === body.entryId) ?? -1;
+      if (index < 0) throw new Error("找不到这条观影记录");
+      undo = { id: body.id, entry: record.entries[index], index };
+      p.filmJournal = normalizeFilmJournal({ ...p.filmJournal, [body.id]: { ...record, entries: record.entries.filter((e) => e.id !== body.entryId) } });
+      return p;
+    }, { monitor: false });
+    return { ...result, undo };
+  });
+  if (["planner/settings", "template/save", "template/delete", "template/default", "template/apply", "journal/save", "journal/entry", "journal/edit-entry", "journal/restore-entry", "journal/entry-state"].includes(path))
     return serial(() => update((p) => {
       const ensureMovie = (id) => {
         if (typeof id !== "string" || !base?.movies.some((m) => m.id === id)) throw new Error("请选择片库中的电影");
@@ -598,12 +614,27 @@ export async function api(path, body) {
           if (!target) throw new Error("找不到这条观影记录");
           journals[id] = { ...record, entries: record.entries.map((e) => e.id === body.entryId ? normalizeJournalEntry({ ...e, type: body.type }) : e) };
         }
-        if (path === "journal/remove-entry") journals[id] = { ...record, entries: record.entries.filter((e) => e.id !== body.entryId) };
+        if (path === "journal/edit-entry") {
+          const existing = record.entries.find((e) => e.id === body.entry.id);
+          if (!existing) throw new Error("这条记录已被删除，请重新查看手记");
+          const entry = normalizeJournalEntry({ ...existing, ...body.entry, id: existing.id });
+          journals[id] = { ...record, entries: record.entries.map((e) => e.id === entry.id ? entry : e) };
+          if (body.stopMonitoring) p.movieRules = { ...p.movieRules, [id]: normalizeRule({ ...p.movieRules?.[id], paused: true }) };
+        }
+        if (path === "journal/restore-entry") {
+          const entry = normalizeJournalEntry(body.entry), existing = record.entries.find((e) => e.id === entry.id);
+          if (existing && JSON.stringify(existing) !== JSON.stringify(entry)) throw new Error("记录已有更新，未覆盖现有内容");
+          if (!existing) {
+            const entries = [...record.entries];
+            entries.splice(Math.min(Math.max(0, Number(body.index) || 0), entries.length), 0, entry);
+            journals[id] = { ...record, entries };
+          }
+        }
         p.filmJournal = normalizeFilmJournal(journals);
       }
       normalizePlannerPrefs(p);
       return p;
-    }));
+    }, { monitor: path === "planner/settings" || path === "template/apply" || (["journal/entry", "journal/edit-entry"].includes(path) && body.stopMonitoring === true) }));
   if (path === "events/read")
     return serial(() =>
       update((p) => {

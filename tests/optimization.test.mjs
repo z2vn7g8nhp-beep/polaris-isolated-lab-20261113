@@ -1,0 +1,70 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { setup } from "./client-fixture.mjs";
+import { watchdogFreshness, calendarFile } from "../docs/planner-model.mjs";
+import { ensureWatchdog } from "../backend/watchdog-trigger.mjs";
+
+const entry = { id: "stable-booking", type: "booked", startsAt: "2020-01-01T19:00:00+08:00", cinemaId: "25769", cinemaName: "UME", hall: "IMAX", durationMinutes: 120, reminderMinutes: 30 };
+test("personal saves sync without monitor dispatch or a false pending indicator; reminder changes still dispatch", async (t) => {
+  const f = await setup(t); let dispatches = 0;
+  f.setIntercept((url, options, next) => { if (url.includes("/dispatches")) dispatches++; return next(url, options); });
+  const save = await f.client.api("journal/save", { id: "111", tags: ["私密"], review: "短评" });
+  assert.equal(save.synced, true); assert.equal(save.queued, false);
+  assert.equal(dispatches, 0); assert.equal(f.client.pending(), false);
+  await f.client.api("journal/entry", { id: "111", entry });
+  await f.client.api("template/save", { id: "personal", name: "自用模板", rule: {} });
+  await f.client.api("template/default", { id: "personal" });
+  assert.equal(dispatches, 0); assert.equal(f.client.pending(), false);
+  await f.client.api("rule", { id: "111", rule: { priority: "urgent" } });
+  assert.equal(dispatches, 1); assert.equal(f.client.pending(), true);
+  const revision = (await f.preferences()).monitorRevision;
+  await f.client.api("journal/save", { id: "111", tags: [], review: "后续短评" });
+  assert.equal((await f.preferences()).monitorRevision, revision);
+  assert.equal(dispatches, 1); assert.equal(f.client.pending(), true);
+  await f.client.api("journal/entry", { id: "222", entry, stopMonitoring: true });
+  assert.equal(dispatches, 2); assert.equal((await f.preferences()).movieRules[222].paused, true);
+});
+test("editing keeps calendar identity; delete undo restores the record without overwriting later edits", async (t) => {
+  const f = await setup(t);
+  await f.client.api("journal/entry", { id: "111", entry });
+  await f.client.api("journal/edit-entry", { id: "111", entry: { ...entry, hall: "CINITY", startsAt: "2020-01-01T20:00:00+08:00" } });
+  const edited = (await f.preferences()).filmJournal[111].entries[0];
+  assert.equal(edited.id, entry.id); assert.equal(edited.hall, "CINITY");
+  assert.match(calendarFile({ id: "111", name: "甲" }, edited), /UID:stable-booking@polaris-cinema/);
+  const deleted = await f.client.api("journal/remove-entry", { id: "111", entryId: entry.id });
+  assert.equal((await f.preferences()).filmJournal[111].entries.length, 0);
+  await f.client.api("journal/restore-entry", deleted.undo);
+  await f.client.api("journal/restore-entry", deleted.undo);
+  assert.equal((await f.preferences()).filmJournal[111].entries.length, 1);
+  await f.client.api("journal/edit-entry", { id: "111", entry: { ...edited, hall: "新影厅" } });
+  const count = f.puts();
+  await assert.rejects(f.client.api("journal/restore-entry", deleted.undo), /已有更新/);
+  assert.equal(f.puts(), count);
+  assert.equal((await f.preferences()).filmJournal[111].entries[0].hall, "新影厅");
+});
+test("watchdog health is stale after twenty minutes even when its last reported health was normal", () => {
+  assert.equal(watchdogFreshness(null, 2000).kind, "unknown");
+  assert.equal(watchdogFreshness({ checkedAt: 1000, health: "healthy" }, 2199).kind, "recent");
+  assert.equal(watchdogFreshness({ checkedAt: 1000, health: "healthy" }, 2200).kind, "stale");
+});
+test("external-dispatch fallback starts only a missing or stale watchdog and avoids queued duplicates", async () => {
+  const calls = []; let status = { checkedAt: 1000 }, runs = [];
+  const request = async (path, options = {}) => {
+    calls.push({ path, options });
+    if (path.startsWith("/contents/")) return status;
+    if (path.includes("/runs?")) return { workflow_runs: runs };
+    return null;
+  };
+  assert.equal((await ensureWatchdog({ request, at: 1500 })).reason, "recent");
+  assert.equal(calls.length, 1);
+  calls.length = 0;
+  assert.equal((await ensureWatchdog({ request, at: 1600 })).triggered, true);
+  assert.equal(calls.filter((c) => c.options.method === "POST").length, 1);
+  runs = [{ status: "queued", created_at: new Date(1500 * 1000).toISOString() }]; calls.length = 0;
+  assert.equal((await ensureWatchdog({ request, at: 1600 })).reason, "already-running");
+  assert.equal(calls.filter((c) => c.options.method === "POST").length, 0);
+  runs = [{ status: "completed", conclusion: "failure", created_at: new Date(1500 * 1000).toISOString() }];
+  assert.equal((await ensureWatchdog({ request, at: 1600 })).reason, "recent-attempt");
+  status = null; runs = [];
+  assert.equal((await ensureWatchdog({ request, at: 1700 })).triggered, true);
+});
