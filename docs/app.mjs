@@ -1,4 +1,4 @@
-import { countdownHero, installCountdown } from "./countdown.mjs?v=calm-1";
+import { countdownHero, installCountdown } from "./countdown.mjs?v=journal-3";
 import { captureFocus, restoreFocus } from "./dom-state.mjs";
 import { monitorEligible, visibleMovies } from "./rules.mjs";
 import {
@@ -7,10 +7,12 @@ import {
   libraryControls,
   filmStatus,
   settingsExtras,
+  onboarding,
+  tokenMigration,
   eventView,
   browsing,
   restoreBrowsing,
-} from "./features.mjs?v=calm-1";
+} from "./features.mjs?v=journal-3";
 import { api, connect, disconnect, deviceId } from "./client.mjs?v=calm-1";
 import {
   pushSupport,
@@ -19,6 +21,7 @@ import {
 } from "./push.mjs?v=push-2";
 import { isComing, groupComing, posterUrl } from "./catalog.mjs?v=calm-1";
 import { checkHealth } from "./status.mjs?v=calm-1";
+import { icon, wishCount, rememberDisclosures, restoreDisclosures } from "./ui.mjs?v=journal-3";
 let data = null,
   view = ["library", "stars", "events", "settings"].includes(
     new URLSearchParams(location.search).get("view"),
@@ -137,7 +140,7 @@ function banner() {
     health.kind === "delayed" ||
     health.kind === "unknown"
   )
-    return `<div class="statusbox warn"><span>△ ${esc(health.message)}</span><button class="secondary" data-action="tick">立即检查一次</button></div>`;
+    return `<div class="statusbox warn"><details class="status-detail" data-disclosure="monitor-warning"><summary id="monitor-warning-summary">${health.kind === "delayed" ? "检查已延迟" : health.kind === "error" ? "检查失败" : "尚无检查记录"}<span>查看详情</span></summary><p>${esc(health.message)}</p></details><button class="secondary" data-action="tick">检查一次</button></div>`;
   if (!data.connected)
     return `<div class="statusbox"><span>连接 GitHub 后可保存星标和接收提醒。</span><button class="secondary" data-view="settings">连接 GitHub →</button></div>`;
   if (data.syncError)
@@ -161,7 +164,7 @@ function banner() {
 function card(m) {
   const img = posterUrl(m.img);
   const safe = /^https:\/\//.test(img) ? img : "";
-  return `<article class="card"><div class="poster">${safe ? `<img src="${esc(safe)}" alt="${esc(m.name)}海报" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">` : ""}<button class="poster-open" data-detail="${esc(m.id)}" aria-label="查看${esc(m.name)}详情"></button><button class="star ${m.active ? "on" : ""}" data-star="${esc(m.id)}" ${(data.connected && !data.personalReady) || m.syncState === "saving" ? "disabled" : ""} aria-label="${m.active ? "停止监测" : "星标监测"}${esc(m.name)}" aria-pressed="${m.active}">${m.active ? "★" : "☆"}</button><span class="badge">${m.active ? (data.movieRules?.[m.id]?.paused ? "提醒已暂停" : monitorEligible(m, data.movieRules?.[m.id]) ? "持续监测中" : "星标保留") : m.upcoming ? "待上映" : "已上映"}</span></div><h3 title="${esc(m.name)}"><button class="film-title" data-detail="${esc(m.id)}">${esc(m.name)}</button></h3><div class="meta"><span>${esc(m.release)}</span><span>${m.score ? esc(m.score) + " 分" : m.wish ? (m.wish / 10000).toFixed(1) + "万人想看" : ""}</span></div>${filmStatus(m, data)}</article>`;
+  return `<article class="card"><div class="poster">${safe ? `<img src="${esc(safe)}" alt="${esc(m.name)}海报" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">` : ""}<button class="poster-open" data-detail="${esc(m.id)}" aria-label="查看${esc(m.name)}详情"></button><button class="star ${m.active ? "on" : ""}" data-star="${esc(m.id)}" ${(data.connected && !data.personalReady) || m.syncState === "saving" ? "disabled" : ""} aria-label="${m.active ? "停止监测" : "星标监测"}${esc(m.name)}" aria-pressed="${m.active}">${m.active ? "★" : "☆"}</button><span class="badge">${m.active ? (data.movieRules?.[m.id]?.paused ? "提醒已暂停" : monitorEligible(m, data.movieRules?.[m.id]) ? "持续监测中" : "星标保留") : m.upcoming ? "待上映" : "已上映"}</span></div><h3 title="${esc(m.name)}"><button class="film-title" data-detail="${esc(m.id)}">${esc(m.name)}</button></h3><div class="meta"><span>${esc(m.release)}</span><span>${m.score ? esc(m.score) + " 分" : m.wish ? wishCount(m.wish) + "人想看" : ""}</span></div>${filmStatus(m, data)}</article>`;
 }
 function baseMovies() {
   return data.movies.filter(
@@ -171,7 +174,7 @@ function baseMovies() {
   );
 }
 function renderCards() {
-  if (!data) return;
+  if (!data || !$("#cards")) return;
   const list = selection(baseMovies(), search);
   $("#cards").innerHTML = list.length
     ? filter === "upcoming" && browsing.sort === "release"
@@ -212,10 +215,12 @@ function library() {
   const stars = data.movies.filter(
     (m) => m.active && monitorEligible(m, data.movieRules?.[m.id]),
   ).length;
-  return `${countdownHero(data)}<div class="stats"><div class="stat"><label>监测中</label><strong>${data.personalReady === false ? "同步中" : stars}<span style="font-size:12px;color:var(--muted);margin-left:7px">部</span></strong></div><div class="stat"><label>影院</label><strong>02<span style="font-size:12px;color:var(--muted);margin-left:7px">家</span></strong><small>MOMOPARK / 西安荟聚</small></div><div class="stat"><label>最近检查</label><strong style="font-size:19px;padding:7px 0">${esc(time(data.lastSuccess))}</strong><button class="text-button" data-action="tick">检查开票 ↻</button></div></div>${banner()}<div class="tools"><div class="tabs" role="group" aria-label="电影分类"><button data-filter="upcoming" class="${filter === "upcoming" ? "active" : ""}" aria-pressed="${filter === "upcoming"}">猫眼待映</button><button data-filter="released" class="${filter === "released" ? "active" : ""}" aria-pressed="${filter === "released"}">已上映</button><button data-filter="all" class="${filter === "all" ? "active" : ""}" aria-pressed="${filter === "all"}">全部电影</button></div><label class="search">⌕ <input id="search" type="search" placeholder="搜索片名…" aria-label="搜索片名" value="${esc(search)}"></label></div>${libraryControls({ ...data, movies: visibleMovies(baseMovies(), { search, sort: browsing.sort }) })}<p class="countlabel" id="listcount"></p><div class="grid" id="cards"></div><div class="footnote"><span>片库整轮更新 ${esc(time(data.catalogCompleted || data.catalogUpdated))}</span></div>`;
+  if (view === "stars" && data.personalReady !== false && !data.movies.some((m) => m.active))
+    return `<div class="hero"><div><h1>我的星标</h1><p class="intro">为想看的电影留一个位置。</p></div></div><div class="empty empty-stars"><span class="empty-art">${icon("ticket")}${icon("star")}</span><strong>下一场期待，从这里开始</strong><p>星标喜欢的电影，连接通知后关注它的新开票。</p><button class="primary" data-view="library">去发现电影 →</button></div>`;
+  return `${view === "library" ? countdownHero(data) : '<div class="hero"><div><h1>我的星标</h1><p class="intro">想看的电影，和它们的下一场。</p></div></div>'}<div class="stats"><div class="stat"><label>监测中</label><strong>${data.personalReady === false ? "同步中" : stars}<span style="font-size:12px;color:var(--muted);margin-left:7px">部</span></strong></div><div class="stat"><label>监测影院</label><strong>2<span style="font-size:12px;color:var(--muted);margin-left:7px">家</span></strong><small>MOMOPARK / 西安荟聚</small></div><div class="stat"><label>最近检查</label><strong style="font-size:19px;padding:7px 0">${esc(time(data.lastSuccess))}</strong><button class="text-button" data-action="tick">检查开票 ↻</button></div></div>${banner()}<div class="tools"><div class="tabs" role="group" aria-label="电影分类"><button data-filter="upcoming" class="${filter === "upcoming" ? "active" : ""}" aria-pressed="${filter === "upcoming"}">猫眼待映</button><button data-filter="released" class="${filter === "released" ? "active" : ""}" aria-pressed="${filter === "released"}">已上映</button><button data-filter="all" class="${filter === "all" ? "active" : ""}" aria-pressed="${filter === "all"}">全部电影</button></div><label class="search">${icon("search")}<input id="search" type="search" placeholder="搜索片名…" aria-label="搜索片名" value="${esc(search)}"></label></div>${libraryControls({ ...data, movies: visibleMovies(baseMovies(), { search, sort: browsing.sort }) })}<p class="countlabel" id="listcount"></p><div class="grid" id="cards"></div><div class="footnote"><span>片库整轮更新 ${esc(time(data.catalogCompleted || data.catalogUpdated))}</span></div>`;
 }
 function settings() {
-  return `<div class="hero"><div><h1>监测与推送</h1></div></div>${banner()}${connectionBox()}${phoneBox()}${settingsExtras(data)}<div class="settingsgrid"><section class="section"><h2>Bark（可选）</h2><p>复用已有设备 Key，使用独立「电影开票」分组。不会修改或覆盖你的其他通知。</p><form id="barkform"><label for="barkkey" class="note">设备 Key</label><br><input id="barkkey" name="key" type="password" autocomplete="off" placeholder="${data.barkConfigured ? "已加密保存；输入可更换" : "从 Bark App 复制设备 Key"}" required minlength="8"><div class="actions"><button type="submit" class="primary">${data.barkConfigured ? "更新 Key" : "保存并启用"}</button>${data.barkConfigured ? '<button type="button" class="secondary" data-action="bark/test">发送测试通知</button><button type="button" class="secondary" data-action="bark/remove">移除</button>' : ""}</div></form><div class="privacy">⌑ Key 加密保存于新仓库，公开文件中不会出现明文。<br>若 Bark 显示 https://api.day.app/你的Key/，只复制中间的 Key。</div>${data.barkError ? '<p style="color:#e6c38b">' + esc(data.barkError) + "</p>" : ""}</section><section class="section"><h2>监测状态</h2><p><span class="dot"></span>${statusLabel()}</p><div class="note">${data.schedule ? `配置外部定时后目标每 ${cinemaMinutes()} 分钟检查两家影院，GitHub 原生每 ${Number(data.schedule.fallbackMinutes) || 5} 分钟计划保留兜底。任务启动可能延迟，请以最近成功检查时间为准。` : "调度状态尚未确认。"}<br>猫眼待映、热映名单、想看人数和电影资料以每 5 分钟整轮更新为目标；实际时间受任务启动和来源响应影响。请求串行进行，连续失败自动退避；遇到验证码或访问限制，暂停并通过已启用的通知渠道提示。<br>低频轮询可能错过短暂开票窗口，不保证秒级送达。</div><div class="actions"><button class="secondary" data-action="tick">立即检查一次</button><button class="secondary" data-action="${data.paused ? "resume" : "pause"}">${data.paused ? "手动恢复" : "暂停全部监测"}</button></div></section></div><section class="section"><h2>监测影院</h2>${data.cinemas.map((c, i) => `<div class="cinemaitem"><div><strong>${esc(c.name)}</strong><br><small>${esc(c.address)} · 猫眼 ID ${c.id}</small></div><div><small>最近检查 ${esc(time(data.checks[i]?.checked))}</small><br><a href="https://m.maoyan.com/cinema/${c.id}" target="_blank" rel="noopener noreferrer">在猫眼打开 ↗</a></div></div>`).join("")}</section><section class="section"><h2>什么算一轮新开票？</h2><div class="note">新场次首次可售、明确不可售后再次可售，以及可识别的售票批次变化，都会产生提醒。同一状态反复出现不会重复提醒。首次星标后，当前已可售场次也会提醒一次。<br>默认仅提醒正式上映前的开票。可在电影详情设置上映后继续监测的截止日期；星标始终保留。提醒发送失败会保留并重试；手动取消星标会取消尚未发送的提醒。轮询间隔内发生且结束的变化可能无法被观察到。</div></section>`;
+  return `<div class="hero"><div><h1>监测与推送</h1></div></div>${onboarding(data)}${banner()}<div class="settings-steps"><details class="setup-step" data-disclosure="setup-connection" ${!data.connected ? "open" : ""}><summary id="setup-connection-summary"><span class="step-number">1</span><span>连接片库<small>加密同步星标和提醒设置</small></span><span class="step-state">${data.connected ? "已连接" : "待连接"}</span></summary>${connectionBox()}</details><details class="setup-step" data-disclosure="setup-notifications" ${data.connected ? "open" : ""}><summary id="setup-notifications-summary"><span class="step-number">2</span><span>启用并测试通知<small>让开票消息找到你</small></span><span class="step-state">${data.pushConfigured ? "已启用" : "待设置"}</span></summary>${phoneBox()}</details></div>${settingsExtras(data)}<details class="settings-advanced" data-disclosure="advanced-settings"><summary id="advanced-settings-summary">高级设置<small>密钥迁移、Bark 与监测说明</small></summary>${tokenMigration(data)}<div class="settingsgrid"><section class="section"><h2>Bark（可选）</h2><p>复用已有设备 Key，使用独立「电影开票」分组。不会修改或覆盖你的其他通知。</p><form id="barkform"><label for="barkkey" class="note">设备 Key</label><br><input id="barkkey" name="key" type="password" autocomplete="off" placeholder="${data.barkConfigured ? "已加密保存；输入可更换" : "从 Bark App 复制设备 Key"}" required minlength="8"><div class="actions"><button type="submit" class="primary">${data.barkConfigured ? "更新 Key" : "保存并启用"}</button>${data.barkConfigured ? '<button type="button" class="secondary" data-action="bark/test">发送测试通知</button><button type="button" class="secondary" data-action="bark/remove">移除</button>' : ""}</div></form><div class="privacy">⌑ Key 加密保存于新仓库，公开文件中不会出现明文。<br>若 Bark 显示 https://api.day.app/你的Key/，只复制中间的 Key。</div>${data.barkError ? '<p style="color:#e6c38b">' + esc(data.barkError) + "</p>" : ""}</section><section class="section"><h2>监测状态</h2><p><span class="dot"></span>${statusLabel()}</p><div class="note">${data.schedule ? `配置外部定时后目标每 ${cinemaMinutes()} 分钟检查两家影院，GitHub 原生每 ${Number(data.schedule.fallbackMinutes) || 5} 分钟计划保留兜底。任务启动可能延迟，请以最近成功检查时间为准。` : "调度状态尚未确认。"}<br>猫眼待映、热映名单、想看人数和电影资料以每 5 分钟整轮更新为目标；实际时间受任务启动和来源响应影响。请求串行进行，连续失败自动退避；遇到验证码或访问限制，暂停并通过已启用的通知渠道提示。<br>低频轮询可能错过短暂开票窗口，不保证秒级送达。</div><div class="actions"><button class="secondary" data-action="tick">立即检查一次</button><button class="secondary" data-action="${data.paused ? "resume" : "pause"}">${data.paused ? "手动恢复" : "暂停全部监测"}</button></div></section></div></details><section class="section"><h2>监测影院</h2>${data.cinemas.map((c, i) => `<div class="cinemaitem"><div><strong>${esc(c.name)}</strong><br><small>${esc(c.address)} · 猫眼 ID ${c.id}</small></div><div><small>最近检查 ${esc(time(data.checks[i]?.checked))}</small><br><a href="https://m.maoyan.com/cinema/${c.id}" target="_blank" rel="noopener noreferrer">在猫眼打开 ↗</a></div></div>`).join("")}</section><section class="section"><h2>什么算一轮新开票？</h2><div class="note">新场次首次可售、明确不可售后再次可售，以及可识别的售票批次变化，都会产生提醒。同一状态反复出现不会重复提醒。首次星标后，当前已可售场次也会提醒一次。<br>默认仅提醒正式上映前的开票。可在电影详情设置上映后继续监测的截止日期；星标始终保留。提醒发送失败会保留并重试；手动取消星标会取消尚未发送的提醒。轮询间隔内发生且结束的变化可能无法被观察到。</div></section>`;
 }
 function events() {
   return eventView(data);
@@ -237,9 +242,11 @@ function render() {
     if (b.dataset.view === view) b.setAttribute("aria-current", "page");
     else b.removeAttribute("aria-current");
   });
+  rememberDisclosures($("#content"));
   $("#content").innerHTML =
     view === "settings" ? settings() : view === "events" ? events() : library();
   if (view === "library" || view === "stars") renderCards();
+  restoreDisclosures($("#content"));
   features.afterRender();
   remember();
 }
@@ -362,7 +369,7 @@ document.addEventListener("click", async (e) => {
 });
 
 function connectionBox() {
-  return `<section class="section" style="margin-bottom:20px"><h2>${data.connected ? "GitHub 已连接" : "连接你的新仓库"}</h2><p>${data.connected ? "星标和推送设置加密同步到新仓库；密钥只保存在当前浏览器。" : "片库可直接浏览。要保存星标和接收提醒，请连接一次 GitHub。"}</p>${data.connected ? '<button class="secondary" data-disconnect="true">断开当前浏览器</button>' : `<form id="connectform"><label class="note" for="githubtoken">GitHub Fine-grained token</label><br><input id="githubtoken" type="password" autocomplete="off" required placeholder="github_pat_…"><div class="actions"><button class="primary" type="submit">连接并同步</button><a class="secondary" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">创建仅限新仓库的密钥 ↗</a></div></form><div class="note" style="margin-top:14px">创建密钥时，Repository access 选择 Only select repositories，只选 <strong>polaris-isolated-lab-20261113</strong>；Repository permissions 中设置 <strong>Contents</strong> 和 <strong>Actions</strong> 为 <strong>Read and write</strong>。<br>以后在其他设备连接时使用同一个密钥，便可解密同步配置。不要把密钥填进仓库文件。</div>`}</section>`;
+  return `<section class="section"><h2>${data.connected ? "GitHub 已连接" : "连接你的片库"}</h2><p>${data.connected ? "星标和推送设置加密同步到新仓库；密钥只保存在当前浏览器。" : "片库可直接浏览。要保存星标和接收提醒，请连接一次 GitHub。"}</p>${data.connected ? '<button class="secondary" data-disconnect="true">断开当前浏览器</button>' : `<form id="connectform"><label class="note" for="githubtoken">GitHub Fine-grained token</label><br><input id="githubtoken" type="password" autocomplete="off" required placeholder="github_pat_…"><div class="actions"><button class="primary" type="submit">连接并同步</button><a class="secondary" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">创建仅限新仓库的密钥 ↗</a></div></form><details class="connection-help" data-disclosure="connection-help"><summary id="connection-help-summary">如何创建 GitHub 密钥？</summary><div class="note">创建密钥时，Repository access 选择 Only select repositories，只选 <strong>polaris-isolated-lab-20261113</strong>；Repository permissions 中设置 <strong>Contents</strong> 和 <strong>Actions</strong> 为 <strong>Read and write</strong>。<br>以后在其他设备连接时使用同一个密钥，便可解密同步配置。不要把密钥填进仓库文件。</div></details>`}</section>`;
 }
 window.addEventListener("polaris-state", (e) => showState(e.detail));
 window.addEventListener("polaris-notice", (e) => toast(e.detail));
@@ -392,12 +399,12 @@ function comingList(movies) {
   const expected = [...movies].sort((a, b) => b.wish - a.wish).slice(0, 10);
   const expectedHtml =
     !search && view === "library"
-      ? `<section class="expected"><h2>最受期待<span class="heading-note">按想看人数</span></h2><div class="expected-strip">${expected.map((m, i) => `<article class="expected-item"><div class="poster"><img src="${esc(posterUrl(m.img))}" alt="${esc(m.name)}海报" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'"><button class="poster-open" data-detail="${esc(m.id)}" aria-label="查看${esc(m.name)}详情"></button><button class="star ${m.active ? "on" : ""}" data-star="${esc(m.id)}" ${(data.connected && !data.personalReady) || m.syncState === "saving" ? "disabled" : ""} aria-label="${m.active ? "停止监测" : "星标监测"}${esc(m.name)}" aria-pressed="${m.active}">${m.active ? "★" : "☆"}</button><span class="badge">${i + 1}</span></div><h3><button class="film-title" data-detail="${esc(m.id)}">${esc(m.name)}</button></h3><small>${(m.wish || 0).toLocaleString()} 人想看</small></article>`).join("")}</div></section>`
+      ? `<section class="expected"><h2>最受期待<span class="heading-note">按想看人数</span></h2><div class="expected-strip">${expected.map((m, i) => `<article class="expected-item"><div class="poster"><img src="${esc(posterUrl(m.img))}" alt="${esc(m.name)}海报" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'"><button class="poster-open" data-detail="${esc(m.id)}" aria-label="查看${esc(m.name)}详情"></button><button class="star ${m.active ? "on" : ""}" data-star="${esc(m.id)}" ${(data.connected && !data.personalReady) || m.syncState === "saving" ? "disabled" : ""} aria-label="${m.active ? "停止监测" : "星标监测"}${esc(m.name)}" aria-pressed="${m.active}">${m.active ? "★" : "☆"}</button><span class="badge">${i + 1}</span></div><h3><button class="film-title" data-detail="${esc(m.id)}">${esc(m.name)}</button></h3><small>${wishCount(m.wish)} 人想看</small></article>`).join("")}</div></section>`
       : "";
   return `<div class="coming-panel">${expectedHtml}${groupComing(movies)
     .map(
       (g) =>
-        `<section class="coming-group"><h2>${esc(g.title)}</h2>${g.movies.map((m) => `<article class="coming-row"><button class="poster-thumb" data-detail="${esc(m.id)}" aria-label="查看${esc(m.name)}详情"><img class="coming-poster" src="${esc(posterUrl(m.img))}" alt="${esc(m.name)}海报" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'"></button><div class="coming-info"><h3><button class="film-title" data-detail="${esc(m.id)}">${esc(m.name)}</button></h3><p class="wish"><strong>${(m.wish || 0).toLocaleString()}</strong> 人想看</p><p class="cast">${m.actors ? "主演：" + esc(m.actors) : "主创信息待补充"}</p><small>${esc(m.release)} 上映</small>${filmStatus(m, data)}</div><button class="row-star ${m.active ? "selected" : ""}" data-star="${esc(m.id)}" ${(data.connected && !data.personalReady) || m.syncState === "saving" ? "disabled" : ""} aria-label="${m.active ? "停止监测" : "星标监测"}${esc(m.name)}" aria-pressed="${m.active}">${m.active ? "★ 已星标" : "☆ 想看"}</button></article>`).join("")}</section>`,
+        `<section class="coming-group"><header class="release-heading"><h2>${g.date === "undated" ? esc(g.title) : `<time datetime="${esc(g.date)}">${esc(g.title.replace(/周.$/, ""))}</time><small>${esc(g.title.match(/周.$/)?.[0] || "")}</small>`}</h2><span>${g.movies.length} 部上映</span></header><div class="release-films">${g.movies.map((m) => `<article class="coming-row"><button class="poster-thumb" data-detail="${esc(m.id)}" aria-label="查看${esc(m.name)}详情"><img class="coming-poster" src="${esc(posterUrl(m.img))}" alt="${esc(m.name)}海报" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'"></button><div class="coming-info"><h3><button class="film-title" data-detail="${esc(m.id)}">${esc(m.name)}</button></h3><p class="wish"><strong>${wishCount(m.wish)}</strong> 人想看</p><p class="cast">${m.actors ? "主演：" + esc(m.actors) : "主创信息待补充"}</p><small>${esc(m.release)} 上映</small>${filmStatus(m, data)}</div><button class="row-star ${m.active ? "selected" : ""}" data-star="${esc(m.id)}" ${(data.connected && !data.personalReady) || m.syncState === "saving" ? "disabled" : ""} aria-label="${m.active ? "停止监测" : "星标监测"}${esc(m.name)}" aria-pressed="${m.active}">${m.active ? "★ 已星标" : "☆ 想看"}</button></article>`).join("")}</div></section>`,
     )
     .join(
       "",

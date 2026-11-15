@@ -16,7 +16,7 @@ export function captureFocus(root) {
 export function restoreFocus(root, state) {
   if (!state) return;
   const candidates = [
-    ...root.querySelectorAll("button,a,input,select,textarea"),
+    ...root.querySelectorAll("button,a,input,select,textarea,summary"),
   ];
   const el = state.id
     ? candidates.find((el) => el.id === state.id)

@@ -1,4 +1,4 @@
-/* Readable type, useful content and one selected release countdown. */
+/* Readable cinema journal: type, countdown and responsive component refinements. */
 body {
   font-size: 16px;
   line-height: 1.75;
@@ -1139,5 +1139,981 @@ nav button {
   }
   .countdown-change {
     min-height: 40px;
+  }
+}
+
+/* A quieter first fold and one consistent set of controls. */
+:root {
+  --accent: #7d273c;
+  --success: #456340;
+  --warning: #8a612d;
+}
+.ui-icon,
+nav button > span:first-child svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  vertical-align: middle;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+nav button > span:first-child {
+  display: grid;
+  place-items: center;
+}
+summary {
+  cursor: pointer;
+  list-style: none;
+}
+summary::-webkit-details-marker {
+  display: none;
+}
+summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 3px;
+}
+.primary,
+.secondary,
+.row-star,
+.countdown-change,
+select,
+.search {
+  border-radius: 5px;
+}
+.secondary,
+.row-star,
+.countdown-change {
+  transition: background 160ms ease, border-color 160ms ease;
+}
+.secondary:hover,
+.countdown-change:hover {
+  background: #eee6dd;
+  border-color: #c5b1a5;
+}
+.search .ui-icon {
+  width: 17px;
+  height: 17px;
+  color: var(--muted);
+}
+.countdown-hero {
+  padding: 20px 26px 15px;
+}
+.countdown-header > span {
+  font-size: 13px;
+}
+.countdown-change {
+  min-height: 34px;
+  padding: 5px 11px;
+  border-radius: 24px;
+  font-size: 12px;
+}
+.countdown-layout {
+  grid-template-columns: minmax(0, 1fr) 104px;
+  gap: 28px;
+  margin: 10px 14px 12px 0;
+}
+.countdown-copy h1 {
+  font-size: 29px;
+  line-height: 1.4;
+}
+.countdown-date {
+  font-size: 13px;
+  margin: 5px 0 15px;
+}
+.countdown-poster {
+  width: 104px;
+  border-width: 4px;
+  box-shadow: 0 8px 18px #5d363020;
+  transform: rotate(4deg);
+}
+.countdown-days strong {
+  font-size: 62px;
+}
+.countdown-clock {
+  gap: 22px;
+  flex-wrap: wrap;
+}
+.countdown-time b {
+  font-size: 23px;
+}
+.countdown-footer {
+  padding-top: 9px;
+  font-size: 11px;
+}
+.countdown-footer .text-button {
+  font-size: 13px;
+}
+.stats {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 30px;
+  margin: 17px 0 13px;
+  padding-bottom: 14px;
+}
+.stat {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 7px;
+  border: 0;
+  padding: 0;
+}
+.stat label {
+  font-size: 12px;
+}
+.stat strong {
+  font-size: 22px;
+  padding: 0;
+  line-height: 1.4;
+}
+.stat small {
+  display: none;
+}
+.stat:last-child {
+  margin-left: auto;
+}
+.stat:last-child strong {
+  font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  padding: 0 !important;
+}
+.stat .text-button {
+  font-size: 12px;
+}
+.statusbox {
+  padding: 9px 13px;
+  min-height: 48px;
+  font-size: 13px;
+  gap: 15px;
+}
+.statusbox button {
+  font-size: 12px;
+  min-height: 32px;
+  padding: 5px 10px;
+  white-space: nowrap;
+  align-self: flex-start;
+}
+.status-detail {
+  flex: 1;
+  min-width: 0;
+}
+.status-detail summary {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-height: 30px;
+}
+.status-detail summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+.status-detail summary span {
+  font-size: 11px;
+  opacity: .8;
+}
+.status-detail p {
+  margin: 6px 0 4px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.tools {
+  margin-top: 17px;
+}
+.discovery {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  margin: 12px 0 14px;
+}
+.scope-buttons {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  gap: 5px;
+}
+.scope-buttons button {
+  white-space: nowrap;
+  flex: none;
+  min-height: 36px;
+  font-size: 12px;
+}
+.filter-panel > summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  min-height: 36px;
+  padding: 5px 11px;
+  font-size: 12px;
+  width: fit-content;
+  margin-left: auto;
+}
+.filter-panel > summary .ui-icon {
+  width: 16px;
+  height: 16px;
+}
+.filter-panel[open] {
+  grid-column: 1 / -1;
+}
+.filter-panel[open] > summary {
+  color: var(--accent);
+  background: #eee3dd;
+}
+.filter-count {
+  display: grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--panel);
+  font: 10px/1 sans-serif;
+}
+.discovery-options {
+  padding: 15px;
+  margin-top: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  gap: 12px 20px;
+  width: 100%;
+}
+.discovery-options .secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.discovery-options .secondary .ui-icon {
+  width: 16px;
+  height: 16px;
+}
+.countlabel {
+  margin-bottom: 20px;
+}
+.card h3,
+.expected-item h3 {
+  white-space: normal;
+  min-height: 2.9em;
+  line-height: 1.45;
+  margin-bottom: 4px;
+}
+button.film-title {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.coming-info h3 {
+  white-space: normal;
+  font-size: 17px;
+}
+.expected-strip {
+  gap: 20px;
+  padding-bottom: 16px;
+}
+.expected-item {
+  flex-basis: calc((100% - 80px) / 5);
+}
+.film-status.is-unavailable span {
+  color: var(--muted);
+}
+.film-status.is-available span,
+.session-row.is-available > span {
+  color: var(--success);
+}
+.session-row.is-unavailable > span {
+  color: var(--muted);
+}
+.film-status.is-available span::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  margin: 0 6px 2px 0;
+}
+.film-status.is-paused span {
+  color: var(--warning);
+}
+.coming-group {
+  display: grid;
+  grid-template-columns: 125px minmax(0, 1fr);
+  gap: 24px;
+  margin-bottom: 0;
+  padding: 22px 0;
+  border-top: 1px solid var(--line);
+}
+.release-heading {
+  padding-top: 7px;
+}
+.coming-group h2 {
+  display: block;
+  font-size: 21px;
+  line-height: 1.5;
+  border: 0;
+  padding: 0;
+}
+.coming-group h2::before {
+  display: none;
+}
+.release-heading h2 small {
+  display: block;
+  font: 12px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.release-heading > span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 9px;
+}
+.release-films {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 28px;
+  min-width: 0;
+}
+.release-films > .coming-row:only-child {
+  grid-column: 1 / -1;
+}
+.coming-row {
+  padding: 12px 0;
+  gap: 16px;
+}
+.release-films > .coming-row:last-child {
+  border-bottom: 0;
+}
+.coming-info .cast {
+  max-width: 35em;
+}
+.coming-info .wish strong {
+  font-size: 16px;
+  color: var(--text);
+}
+.coming-poster {
+  width: 74px;
+  height: 107px;
+}
+.row-star {
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.empty {
+  border-style: solid;
+  background: linear-gradient(150deg, #f1ebe2, #f8f5ef);
+  padding: 45px 24px;
+}
+.empty-art {
+  display: block;
+  position: relative;
+  width: 92px;
+  height: 76px;
+  margin: 0 auto 20px;
+  color: var(--accent);
+}
+.empty-art > .ui-icon:first-child {
+  width: 80px;
+  height: 72px;
+  opacity: .65;
+  transform: rotate(-12deg);
+  stroke-width: .8;
+}
+.empty-art > .ui-icon:last-child {
+  position: absolute;
+  right: 0;
+  top: 2px;
+  width: 26px;
+  height: 26px;
+  padding: 4px;
+  background: var(--bg);
+  border-radius: 50%;
+}
+.empty p {
+  max-width: 28em;
+  margin: 12px auto 22px;
+}
+.detail-top {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding-bottom: 23px;
+  border-bottom: 1px solid var(--line);
+}
+.detail-poster {
+  width: 95px;
+  aspect-ratio: 2 / 3;
+  flex: none;
+  background: #e7dfd3;
+  border: 4px solid var(--panel);
+  box-shadow: 0 4px 12px #392d1515;
+  position: relative;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.detail-poster > span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #ab9986;
+}
+.detail-poster img {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.detail-heading {
+  border: 0;
+  padding: 0 35px 0 0;
+  flex: 1;
+  min-width: 0;
+  position: static;
+}
+.detail-heading h2 {
+  margin: 0 0 10px;
+  line-height: 1.45;
+}
+.movie-dialog {
+  border: 1px solid #d1c3b4;
+  border-radius: 9px;
+}
+.dialog-close {
+  position: absolute;
+  top: 21px;
+  right: 21px;
+  min-height: 36px;
+}
+.detail-facts {
+  gap: 8px 22px;
+  font-size: 13px;
+  margin: 17px 0;
+}
+.detail-facts > span:first-child {
+  flex-basis: 100%;
+}
+.detail-facts b {
+  line-height: 1.7;
+}
+.session-cinema {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  padding: 16px;
+}
+.session-cinema > p {
+  margin-bottom: 0;
+}
+.rule-disclosure > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  font: 22px/1.5 var(--serif);
+}
+.rule-disclosure > summary small {
+  display: block;
+  font: 13px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--muted);
+  margin-top: 7px;
+}
+.disclosure-hint {
+  color: var(--accent);
+  font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  white-space: nowrap;
+}
+.rule-disclosure[open] .disclosure-hint::after {
+  content: " −";
+}
+.rule-disclosure:not([open]) .disclosure-hint::after {
+  content: " +";
+}
+.rule-disclosure .rule-heading {
+  font-size: 18px;
+  margin-top: 24px;
+}
+.settings-steps {
+  margin-top: 22px;
+  display: grid;
+  gap: 12px;
+}
+.setup-step {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.setup-step > summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 20px 24px;
+  font-size: 16px;
+  font-weight: 550;
+}
+.step-number {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  color: var(--accent);
+  border: 1px solid #d9c4bf;
+  border-radius: 50%;
+  font: 18px/1 Georgia, serif;
+}
+.setup-step > summary small {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.step-state {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.setup-step > .section {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 0;
+  border-radius: 0;
+}
+.setup-step > .section h2 {
+  font-size: 22px;
+}
+.connection-help {
+  margin-top: 18px;
+}
+.connection-help > summary {
+  font-size: 13px;
+  color: var(--accent);
+}
+.connection-help > summary::after {
+  content: " +";
+}
+.connection-help[open] > summary::after {
+  content: " −";
+}
+.connection-help .note {
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+}
+.settings-advanced {
+  border-top: 1px solid var(--line);
+  margin-top: 28px;
+  padding-top: 22px;
+}
+.settings-advanced > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 15px;
+  font-size: 16px;
+}
+.settings-advanced > summary::after {
+  content: "+";
+  margin-left: auto;
+  color: var(--accent);
+}
+.settings-advanced[open] > summary::after {
+  content: "−";
+}
+.settings-advanced > summary small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.onboarding {
+  background: #eee9df;
+  padding: 17px 20px;
+}
+.onboarding strong {
+  font-size: 18px;
+}
+.onboarding .secondary[data-view="settings"] {
+  display: none;
+}
+.section .actions,
+.detail-actions {
+  gap: 10px;
+}
+@media (max-width: 1200px) {
+  .release-films {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 650px) {
+  .sidebar {
+    padding-top: 12px;
+  }
+  .logo {
+    font-size: 21px;
+    line-height: 1.35;
+    margin-bottom: 8px;
+  }
+  .mark {
+    width: 29px;
+    height: 31px;
+  }
+  nav {
+    gap: 6px;
+  }
+  nav button {
+    gap: 4px;
+    padding: 8px 0 11px;
+    font-size: 12px;
+  }
+  nav button > span:first-child,
+  nav button > span:first-child svg {
+    width: 16px;
+    height: 16px;
+  }
+  .main {
+    padding-top: 16px;
+  }
+  .countdown-hero {
+    padding: 15px 17px 12px;
+  }
+  .countdown-header > span {
+    font-size: 12px;
+  }
+  .countdown-header svg {
+    width: 17px;
+    height: 17px;
+  }
+  .countdown-change {
+    min-height: 32px;
+    padding: 4px 9px;
+    font-size: 11px;
+  }
+  .countdown-change > span {
+    margin-left: 3px;
+  }
+  .countdown-layout {
+    grid-template-columns: minmax(0, 1fr) 76px;
+    gap: 16px;
+    margin: 10px 3px 12px 0;
+  }
+  .countdown-copy h1 {
+    font-size: 22px;
+    line-height: 1.4;
+  }
+  .countdown-date {
+    font-size: 11px;
+    margin: 5px 0 11px;
+  }
+  .countdown-poster {
+    width: 76px;
+    border-width: 3px;
+  }
+  .countdown-clock {
+    display: flex;
+    align-items: baseline;
+    gap: 8px 12px;
+  }
+  .countdown-days {
+    gap: 5px;
+  }
+  .countdown-days strong {
+    font-size: 48px;
+  }
+  .countdown-days > span {
+    font-size: 11px;
+  }
+  .countdown-time {
+    margin: 0;
+    gap: 4px;
+  }
+  .countdown-time > span {
+    gap: 2px;
+  }
+  .countdown-time b {
+    font-size: 17px;
+  }
+  .countdown-time small {
+    font-size: 10px;
+  }
+  .countdown-time i {
+    font-size: 12px;
+  }
+  .countdown-footer {
+    font-size: 10px;
+    padding-top: 8px;
+    gap: 5px;
+  }
+  .countdown-footer .text-button {
+    font-size: 12px;
+  }
+  .stats {
+    gap: 8px 14px;
+    margin: 13px 0 11px;
+    padding-bottom: 11px;
+  }
+  .stat {
+    gap: 5px;
+  }
+  .stat label {
+    font-size: 11px;
+  }
+  .stat strong {
+    font-size: 19px;
+  }
+  .stat:last-child {
+    gap: 4px 8px;
+  }
+  .stat:last-child label {
+    display: none;
+  }
+  .stat:last-child strong {
+    font-size: 11px !important;
+  }
+  .stat .text-button {
+    font-size: 11px;
+  }
+  .statusbox {
+    padding: 8px 10px;
+    gap: 10px;
+  }
+  .tools {
+    margin-top: 14px;
+    gap: 7px;
+  }
+  .tabs button {
+    padding-block: 8px;
+  }
+  .search {
+    padding: 8px 11px;
+  }
+  .discovery {
+    margin: 10px 0 12px;
+    gap: 8px;
+  }
+  .scope-buttons {
+    gap: 2px;
+  }
+  .scope-buttons button {
+    font-size: 11px;
+    padding: 5px 7px;
+  }
+  .filter-panel > summary {
+    padding-inline: 9px;
+    gap: 5px;
+    min-height: 36px;
+  }
+  .discovery-options {
+    padding: 13px;
+    gap: 12px;
+  }
+  .discovery-options label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1 0 100%;
+  }
+  .discovery-options .filter-label {
+    position: static;
+    width: auto;
+    height: auto;
+    clip-path: none;
+    overflow: visible;
+  }
+  .discovery-options select {
+    flex: 1;
+    max-width: none;
+  }
+  .countlabel {
+    margin-bottom: 17px;
+    font-size: 11px;
+  }
+  .expected h2 {
+    margin-bottom: 13px;
+    font-size: 22px;
+  }
+  .expected-strip {
+    gap: 13px;
+  }
+  .expected-item {
+    flex: 0 0 31%;
+    min-width: 100px;
+  }
+  .expected-item h3 {
+    font-size: 14px;
+  }
+  .expected-item small {
+    font-size: 11px;
+  }
+  .coming-group {
+    display: block;
+    padding: 20px 0 10px;
+  }
+  .release-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 0 0 10px;
+  }
+  .coming-group h2 {
+    display: flex;
+    align-items: baseline;
+    font-size: 21px;
+    gap: 9px;
+  }
+  .release-heading h2 small {
+    font-size: 11px;
+    margin: 0;
+  }
+  .release-heading > span {
+    margin: 0;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .coming-row {
+    gap: 12px;
+    padding: 13px 0;
+  }
+  .poster-thumb .coming-poster {
+    width: 62px;
+    height: 91px;
+  }
+  .coming-info h3 {
+    font-size: 15px;
+    margin-bottom: 5px;
+  }
+  .coming-info .wish strong {
+    font-size: 15px;
+  }
+  .row-star {
+    padding: 7px 9px;
+    font-size: 11px;
+  }
+  .movie-dialog {
+    width: 100vw;
+    max-width: 100vw;
+    max-height: 100dvh;
+    height: 100dvh;
+    margin: 0;
+    padding: calc(23px + env(safe-area-inset-top, 0px)) 20px calc(28px + env(safe-area-inset-bottom, 0px));
+    border: 0;
+    border-radius: 0;
+  }
+  .detail-top {
+    gap: 17px;
+    padding-bottom: 19px;
+  }
+  .detail-poster {
+    width: 72px;
+    border-width: 3px;
+  }
+  .detail-heading {
+    padding-right: 20px;
+  }
+  .detail-heading h2 {
+    font-size: 25px;
+    margin-bottom: 8px;
+  }
+  .detail-heading p {
+    font-size: 12px;
+  }
+  .dialog-close {
+    position: fixed;
+    top: calc(14px + env(safe-area-inset-top, 0px));
+    right: 12px;
+    background: var(--bg);
+    z-index: 3;
+  }
+  .detail-facts {
+    font-size: 12px;
+    gap: 7px 20px;
+  }
+  .detail-actions .primary,
+  .detail-actions .secondary {
+    font-size: 13px;
+    padding: 9px 12px;
+  }
+  .detail-section {
+    margin-top: 23px;
+    padding-top: 19px;
+  }
+  .detail-section h3 {
+    font-size: 23px;
+  }
+  .session-cinema {
+    padding: 13px;
+  }
+  .session-heading {
+    gap: 5px;
+  }
+  .session-heading strong {
+    font-size: 14px;
+  }
+  .session-heading small {
+    font-size: 11px;
+  }
+  .session-cinema > p,
+  .detail-section > .note {
+    font-size: 13px;
+  }
+  .rule-disclosure > summary {
+    font-size: 22px;
+  }
+  .rule-disclosure > summary small {
+    font-size: 12px;
+  }
+  .setup-step > summary {
+    padding: 17px;
+    gap: 11px;
+    font-size: 15px;
+  }
+  .setup-step > .section {
+    padding: 19px;
+  }
+  .setup-step .actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .setup-step .actions a {
+    text-align: center;
+  }
+  .onboarding {
+    margin: 15px 0 20px;
+    padding: 15px;
+  }
+  .onboarding ol {
+    gap: 9px 16px;
+  }
+  .onboarding li {
+    font-size: 11px;
+  }
+  .empty {
+    padding: 36px 20px;
+  }
+  .empty strong {
+    font-size: 23px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
   }
 }

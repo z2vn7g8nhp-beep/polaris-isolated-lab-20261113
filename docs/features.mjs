@@ -1,3 +1,5 @@
+import { icon, wishCount, rememberDisclosures, restoreDisclosures } from "./ui.mjs?v=journal-3";
+import { posterUrl } from "./catalog.mjs?v=calm-1";
 import { captureFocus, restoreFocus } from "./dom-state.mjs";
 import { api, rotateToken, deviceId } from "./client.mjs?v=calm-1";
 import {
@@ -103,7 +105,7 @@ export function libraryControls(data) {
     )
     .join(
       "",
-    )}</div><div class="discovery-options"><label><span class="filter-label">月份</span> <select id="month-filter"><option value="">不限月份</option>${months.map((v) => `<option ${selected(v === browsing.month)}>${v}</option>`).join("")}</select></label><label><span class="filter-label">排序</span> <select id="sort-filter">${[
+    )}</div><details class="filter-panel" data-disclosure="library-filters"><summary id="library-filters-summary">${icon("settings")}筛选${browsing.month || browsing.sort !== "release" || browsing.day || browsing.calendar ? `<span class="filter-count">${Number(!!browsing.month) + Number(browsing.sort !== "release") + Number(!!browsing.day) + Number(browsing.calendar)}</span>` : ""}</summary><div class="discovery-options"><label><span class="filter-label">月份</span> <select id="month-filter"><option value="">不限月份</option>${months.map((v) => `<option ${selected(v === browsing.month)}>${v}</option>`).join("")}</select></label><label><span class="filter-label">排序</span> <select id="sort-filter">${[
     ["release", "上映日期"],
     ["wish", "想看热度"],
     ["score", "评分优先"],
@@ -114,7 +116,7 @@ export function libraryControls(data) {
     )
     .join(
       "",
-    )}</select></label><button class="secondary" data-calendar aria-pressed="${browsing.calendar}">${browsing.calendar ? "收起日历" : "▦ 上映日历"}</button></div></div><div id="release-calendar">${browsing.calendar ? calendar(data.movies) : ""}</div>${browsing.day ? `<p class="day-selection">正在看 ${esc(browsing.day)} 的电影 <button class="text-button" data-clear-day>清除日期 ×</button></p>` : ""}`;
+    )}</select></label><button class="secondary" data-calendar aria-pressed="${browsing.calendar}">${icon("calendar")}${browsing.calendar ? "收起日历" : "上映日历"}</button></div></details></div><div id="release-calendar">${browsing.calendar ? calendar(data.movies) : ""}</div>${browsing.day ? `<p class="day-selection">正在看 ${esc(browsing.day)} 的电影 <button class="text-button" data-clear-day>清除日期 ×</button></p>` : ""}`;
 }
 function calendar(movies) {
   const month = browsing.calendarMonth,
@@ -143,7 +145,7 @@ export function filmStatus(movie, data) {
     ),
     available = sessions.filter((r) => r.available).length;
   const rule = data.movieRules?.[movie.id];
-  return `<div class="film-status"><span>${rule?.paused ? "提醒已暂停" : available ? `已观测到 ${available} 场可售` : data.checks?.some(Boolean) ? "暂未观测到可售" : "场次尚未检查"}</span></div>${["saving", "pending", "error"].includes(movie.syncState) ? `<small class="save-state ${movie.syncState === "error" ? "save-error" : ""}">${{ saving: "正在保存星标…", pending: "已保存 · 等待后台应用", error: "保存失败，可重试", applied: "后台已应用" }[movie.syncState] || "星标已保存"}${movie.syncState === "error" ? ` <button class="text-button" data-retry-star="${esc(movie.id)}">重试</button>` : ""}</small>` : ""}`;
+  return `<div class="film-status ${rule?.paused ? "is-paused" : available ? "is-available" : "is-unavailable"}"><span>${rule?.paused ? "提醒已暂停" : available ? `已观测到 ${available} 场可售` : data.checks?.some(Boolean) ? "暂未观测到可售" : "场次尚未检查"}</span></div>${["saving", "pending", "error"].includes(movie.syncState) ? `<small class="save-state ${movie.syncState === "error" ? "save-error" : ""}">${{ saving: "正在保存星标…", pending: "已保存 · 等待后台应用", error: "保存失败，可重试", applied: "后台已应用" }[movie.syncState] || "星标已保存"}${movie.syncState === "error" ? ` <button class="text-button" data-retry-star="${esc(movie.id)}">重试</button>` : ""}</small>` : ""}`;
 }
 export function onboarding(data) {
   const tests = data.requestResult,
@@ -189,7 +191,10 @@ export function settingsExtras(data) {
     devices = data.pushDevices || [],
     test = data.requestResult,
     received = data.receivedTest?.id === test?.id;
-  return `${onboarding(data)}<section class="section"><h2>通知设备</h2><p>最多连接 8 台设备。请在每台设备上打开网站并启用通知；每台设备独立测试、命名和移除。</p>${devices.map((d) => `<div class="device-row"><div><strong>${esc(d.name)} ${d.id === own ? "<small>本机</small>" : ""}</strong><p>${esc(d.error || "已登记")}${d.lastSuccess ? " · 最近交给推送服务 " + stamp(d.lastSuccess) : ""}</p></div><div class="actions"><button class="secondary" data-device-test="${esc(d.id)}">测试</button><button class="secondary" data-device-rename="${esc(d.id)}">命名</button><button class="secondary" data-device-remove="${esc(d.id)}">移除</button></div></div>`).join("") || `<p class="note">${data.hasLegacyPush ? "原有手机通知仍然保留。在本机重新启用后，可继续添加其他设备。" : "还没有登记多设备通知。"}</p>`}${test ? `<div class="test-result"><strong>${test.ok ? "推送服务已接收测试请求" : "测试发送失败"}</strong><p>${test.ok ? "服务接受请求不等于手机实际收到。请查看目标设备通知，再手动确认。" : esc(test.message)}</p>${test.ok ? `<button class="secondary" data-test-received="${esc(test.id)}" ${received ? "disabled" : ""}>${received ? "已确认实际收到" : "我已在手机收到这条测试"}</button>` : ""}</div>` : ""}</section>${health(data)}<section class="section"><h2>更换密钥，迁移配置</h2><p>用旧密钥解密原配置，再用新密钥重新加密。星标、规则、设备和已读记录一起保留；旧密钥即使已过期，只要原字符串仍在，也能用于解密。</p><form id="rotate-form"><label class="note" for="old-token">原来的 GitHub 密钥（留空使用本机当前密钥）</label><input id="old-token" type="password" autocomplete="off" placeholder="旧 github_pat_…"><label class="note" for="new-token">新 GitHub 密钥 · 本仓库 Contents / Actions 读写权限</label><input id="new-token" type="password" autocomplete="off" required placeholder="新 github_pat_…"><div class="actions"><button class="primary" type="submit">迁移到新密钥</button></div></form><p class="note">迁移成功后，其他设备也需要改用新密钥。确认所有设备恢复同步后，再撤销旧密钥。旧密钥无法解密时不会覆盖原配置。</p></section>`;
+  return `<section class="section"><h2>通知设备</h2><p>最多连接 8 台设备。请在每台设备上打开网站并启用通知；每台设备独立测试、命名和移除。</p>${devices.map((d) => `<div class="device-row"><div><strong>${esc(d.name)} ${d.id === own ? "<small>本机</small>" : ""}</strong><p>${esc(d.error || "已登记")}${d.lastSuccess ? " · 最近交给推送服务 " + stamp(d.lastSuccess) : ""}</p></div><div class="actions"><button class="secondary" data-device-test="${esc(d.id)}">测试</button><button class="secondary" data-device-rename="${esc(d.id)}">命名</button><button class="secondary" data-device-remove="${esc(d.id)}">移除</button></div></div>`).join("") || `<p class="note">${data.hasLegacyPush ? "原有手机通知仍然保留。在本机重新启用后，可继续添加其他设备。" : "还没有登记多设备通知。"}</p>`}${test ? `<div class="test-result"><strong>${test.ok ? "推送服务已接收测试请求" : "测试发送失败"}</strong><p>${test.ok ? "服务接受请求不等于手机实际收到。请查看目标设备通知，再手动确认。" : esc(test.message)}</p>${test.ok ? `<button class="secondary" data-test-received="${esc(test.id)}" ${received ? "disabled" : ""}>${received ? "已确认实际收到" : "我已在手机收到这条测试"}</button>` : ""}</div>` : ""}</section>${health(data)}`;
+}
+export function tokenMigration(data) {
+  return `<section class="section"><h2>更换密钥，迁移配置</h2><p>用旧密钥解密原配置，再用新密钥重新加密。星标、规则、设备和已读记录一起保留；旧密钥即使已过期，只要原字符串仍在，也能用于解密。</p><form id="rotate-form"><label class="note" for="old-token">原来的 GitHub 密钥（留空使用本机当前密钥）</label><input id="old-token" type="password" autocomplete="off" placeholder="旧 github_pat_…"><label class="note" for="new-token">新 GitHub 密钥 · 本仓库 Contents / Actions 读写权限</label><input id="new-token" type="password" autocomplete="off" required placeholder="新 github_pat_…"><div class="actions"><button class="primary" type="submit">迁移到新密钥</button></div></form><p class="note">迁移成功后，其他设备也需要改用新密钥。确认所有设备恢复同步后，再撤销旧密钥。旧密钥无法解密时不会覆盖原配置。</p></section>`;
 }
 export function eventView(data) {
   const read = new Set(data.readEvents || []),
@@ -249,7 +254,7 @@ export function eventView(data) {
             return `<article id="event-${esc(e.id)}" data-event-ids="${esc(ids.join(","))}" class="event ${isNew ? "unread" : ""}"><span class="eventicon">${e.kind === "risk" ? "△" : "✦"}</span><div><h3>${esc(e.title)} ${g.events.length > 1 ? `<small>合并 ${g.events.length} 条</small>` : ""}</h3>${g.events.map((x) => `<p>${esc(x.body)}</p>`).join("")}<small>${stamp(e.created_at)}${e.attempts ? " · 重试 " + e.attempts + " 次" : ""}</small><div class="actions">${movie ? `<button class="secondary" data-detail="${esc(movie.id)}">查看电影与场次</button>` : ""}${safePurchase(url) ? `<a class="primary" href="${esc(url)}" target="_blank" rel="noopener noreferrer">去猫眼购票 ↗</a>` : ""}${isNew ? `<button class="secondary" data-read="${esc(ids.join(","))}">标为已读</button>` : ""}${movie?.active ? `<button class="text-button" data-pause-film="${esc(movie.id)}">${data.movieRules?.[movie.id]?.paused ? "恢复该片提醒" : "暂停该片提醒"}</button>` : ""}</div></div><span class="pill">${e.cancelled ? "已取消" : e.sent_at ? "已交给推送服务" : data.pushConfigured || data.barkConfigured ? "等待发送" : "待启用通知"}</span></article>`;
           })
           .join("")
-      : `<div class="empty"><strong>${data.events.length ? "没有符合筛选的提醒" : "暂时还没有开票提醒"}</strong><p>在片库星标电影后，符合规则的新开票会出现在这里。</p><button class="primary" data-view="library">去电影片库 →</button></div>`
+      : `<div class="empty"><span class="empty-art">${icon("ticket")}${icon("history")}</span><strong>${data.events.length ? "没有符合筛选的提醒" : "暂时还没有开票提醒"}</strong><p>在片库星标电影后，符合规则的新开票会出现在这里。</p><button class="primary" data-view="library">去电影片库 →</button></div>`
   }</div>`;
 }
 function safePurchase(url) {
@@ -284,15 +289,16 @@ function detail(movie, data) {
         ...rule.formats,
       ]),
     ];
-  return `<div class="detail-heading"><h2 id="detail-title">${esc(movie.name)}</h2><p>${esc(movie.release)} · ${esc(countdown(movie.release))}</p><button class="dialog-close secondary" data-close-detail aria-label="关闭电影详情">×</button></div><div class="detail-facts"><span>主演 <b>${esc(movie.actors || "资料待补充")}</b></span><span>猫眼评分 <b>${movie.score ? esc(movie.score) : "暂无"}</b></span><span>想看人数 <b>${Number(movie.wish || 0).toLocaleString()}</b></span></div><div class="detail-actions"><button class="primary" data-star="${esc(movie.id)}" ${movie.syncState === "saving" || (data.connected && !data.personalReady) ? "disabled" : ""}>${movie.active ? "★ 已星标 · 点击停止" : monitorEligible(movie, rule) ? "☆ 星标并监测" : "☆ 收藏这部电影"}</button><button class="secondary" data-copy-film="${esc(movie.id)}">复制电影链接</button></div><div class="detail-status">${filmStatus(movie, data)}</div><section class="detail-section"><h3>影院场次 <small>${matching.length} 场可售符合当前规则</small></h3><p class="note">以下是最近一次检查时观测到的场次；余票、票价和最终可售情况请以猫眼为准。</p>${data.cinemas
+  const poster = posterUrl(movie.img);
+  return `<div class="detail-top"><div class="detail-poster"><span>${icon("library")}</span>${poster ? `<img src="${esc(poster)}" alt="${esc(movie.name)}海报" referrerpolicy="no-referrer" decoding="async" onerror="this.style.visibility='hidden'">` : ""}</div><div class="detail-heading"><h2 id="detail-title">${esc(movie.name)}</h2><p>${esc(movie.release)} · ${esc(countdown(movie.release))}</p><button class="dialog-close secondary" data-close-detail aria-label="关闭电影详情">×</button></div></div><div class="detail-facts"><span>主演 <b>${esc(movie.actors || "资料待补充")}</b></span><span>猫眼评分 <b>${movie.score ? esc(movie.score) : "暂无"}</b></span><span>想看人数 <b>${wishCount(movie.wish)}</b></span></div><div class="detail-actions"><button class="primary" data-star="${esc(movie.id)}" ${movie.syncState === "saving" || (data.connected && !data.personalReady) ? "disabled" : ""}>${movie.active ? "★ 已星标 · 点击停止" : monitorEligible(movie, rule) ? "☆ 星标并监测" : "☆ 收藏这部电影"}</button><button class="secondary" data-copy-film="${esc(movie.id)}">复制电影链接</button></div><div class="detail-status">${filmStatus(movie, data)}</div><section class="detail-section"><h3>影院场次 <small>${matching.length} 场可售符合当前规则</small></h3><p class="note">以下是最近一次检查时观测到的场次；余票、票价和最终可售情况请以猫眼为准。</p>${data.cinemas
     .map((c, i) => {
       const sessions = rows.filter((r) => r.cinema_id === c.id),
         check = data.checks?.[i];
-      return `<div class="session-cinema"><div class="session-heading"><strong>${esc(c.short)}</strong><small>检查：${stamp(check?.checked)}</small></div>${sessions.length ? `<div class="session-list">${sessions.map((r) => `<div class="session-row ${matchesSession(r, rule) ? "matches" : "outside-rule"}"><div><strong>${esc(r.starts_at.slice(5, 10))} ${esc(r.starts_at.slice(11, 16))}</strong><small>${esc(r.hall)} ${esc(r.format)}${matchesSession(r, rule) ? "" : " · 不在提醒范围"}</small></div><span>${r.available ? "已观测可售" : "暂不可售"}</span>${safePurchase(r.url) ? `<a class="secondary" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">猫眼 ↗</a>` : ""}</div>`).join("")}</div>` : `<p class="note">${check ? "本次检查未观测到该片未来场次。" : "尚未完成该影院的场次检查。"}</p>`}</div>`;
+      return `<div class="session-cinema"><div class="session-heading"><strong>${esc(c.short)}</strong><small>检查：${stamp(check?.checked)}</small></div>${sessions.length ? `<div class="session-list">${sessions.map((r) => `<div class="session-row ${r.available ? "is-available" : "is-unavailable"} ${matchesSession(r, rule) ? "matches" : "outside-rule"}"><div><strong>${esc(r.starts_at.slice(5, 10))} ${esc(r.starts_at.slice(11, 16))}</strong><small>${esc(r.hall)} ${esc(r.format)}${matchesSession(r, rule) ? "" : " · 不在提醒范围"}</small></div><span>${r.available ? "已观测可售" : "暂不可售"}</span>${safePurchase(r.url) ? `<a class="secondary" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">猫眼 ↗</a>` : ""}</div>`).join("")}</div>` : `<p class="note">${check ? "本次检查未观测到该片未来场次。" : "尚未完成该影院的场次检查。"}</p>`}</div>`;
     })
     .join(
       "",
-    )}</section><section class="detail-section"><h3>只为你想看的场次提醒</h3><p class="note">规则按北京时间匹配。留空表示不限；电影需要星标后才会监测。</p><form id="rule-form" data-movie="${esc(movie.id)}">${data.connected && !data.personalReady ? '<p class="note">正在同步原有规则，请稍候…</p>' : ""}<fieldset class="rule-body" ${data.connected && !data.personalReady ? "disabled" : ""}><fieldset><legend>影院</legend>${data.cinemas.map((c) => `<label><input type="checkbox" name="cinemas" value="${esc(c.id)}" ${checked(rule.cinemas.includes(c.id))}> ${esc(c.short)}</label>`).join("")}</fieldset><fieldset><legend>制式／影厅关键词 · 任一匹配</legend>${formats.map((f) => `<label><input type="checkbox" name="formats" value="${esc(f)}" ${checked(rule.formats.includes(f))}> ${esc(f)}</label>`).join("")}<label class="rule-custom">其他关键词 <input name="customFormat" maxlength="32" placeholder="例如：激光"></label></fieldset><fieldset><legend>星期</legend>${[
+    )}</section><details class="detail-section rule-disclosure" data-disclosure="rules-${esc(movie.id)}"><summary id="rule-summary"><span>提醒规则<small>${rule.paused ? "已暂停提醒" : [rule.cinemas.length ? rule.cinemas.length + " 家影院" : "全部影院", rule.formats.length ? rule.formats.join(" / ") : "不限制式", rule.weekdays.length ? "已选 " + rule.weekdays.length + " 天" : "每天", rule.from || rule.until ? "已设日期范围" : "", rule.timeFrom || rule.timeUntil ? "已设时段" : "", rule.continueUntil ? "监测至 " + rule.continueUntil : "上映前提醒"].filter(Boolean).map(esc).join(" · ")}</small></span><span class="disclosure-hint">编辑</span></summary><h3 class="rule-heading">只为你想看的场次提醒</h3><p class="note">规则按北京时间匹配。留空表示不限；电影需要星标后才会监测。</p><form id="rule-form" data-movie="${esc(movie.id)}">${data.connected && !data.personalReady ? '<p class="note">正在同步原有规则，请稍候…</p>' : ""}<fieldset class="rule-body" ${data.connected && !data.personalReady ? "disabled" : ""}><fieldset><legend>影院</legend>${data.cinemas.map((c) => `<label><input type="checkbox" name="cinemas" value="${esc(c.id)}" ${checked(rule.cinemas.includes(c.id))}> ${esc(c.short)}</label>`).join("")}</fieldset><fieldset><legend>制式／影厅关键词 · 任一匹配</legend>${formats.map((f) => `<label><input type="checkbox" name="formats" value="${esc(f)}" ${checked(rule.formats.includes(f))}> ${esc(f)}</label>`).join("")}<label class="rule-custom">其他关键词 <input name="customFormat" maxlength="32" placeholder="例如：激光"></label></fieldset><fieldset><legend>星期</legend>${[
     [1, "一"],
     [2, "二"],
     [3, "三"],
@@ -307,7 +313,7 @@ function detail(movie, data) {
     )
     .join(
       "",
-    )}</fieldset><div class="rule-dates"><label>场次开始日期<input type="date" name="from" value="${rule.from}"></label><label>场次结束日期<input type="date" name="until" value="${rule.until}"></label><label>开始时间<input type="time" name="timeFrom" value="${rule.timeFrom}"></label><label>结束时间<input type="time" name="timeUntil" value="${rule.timeUntil}"></label></div><p class="note">结束时间早于开始时间表示跨午夜，如 22:00–02:00。</p><label class="continue-label">上映后继续监测至 <input type="date" name="continueUntil" value="${rule.continueUntil}"></label><p class="note">留空仅提醒正式上映前的开票。填入日期后，包含该日期在内继续监测。</p><label><input type="checkbox" name="paused" ${checked(rule.paused)}> 暂停这部电影的提醒，保留星标</label><div class="actions"><button class="primary" type="submit">保存提醒规则</button><button class="secondary" type="button" data-reset-rule="${esc(movie.id)}">恢复默认规则</button></div></fieldset><p class="form-feedback" role="status" id="rule-feedback"></p></form><p class="note">当前：${monitorEligible(movie, rule) ? (movie.active ? "按规则持续监测" : "尚未星标") : rule.paused ? "该片提醒已暂停" : "已超过监测日期，星标仍保留"}。修改规则不会补发已过去的开票事件；新出现或恢复可售的匹配场次会继续提醒。</p></section>`;
+    )}</fieldset><div class="rule-dates"><label>场次开始日期<input type="date" name="from" value="${rule.from}"></label><label>场次结束日期<input type="date" name="until" value="${rule.until}"></label><label>开始时间<input type="time" name="timeFrom" value="${rule.timeFrom}"></label><label>结束时间<input type="time" name="timeUntil" value="${rule.timeUntil}"></label></div><p class="note">结束时间早于开始时间表示跨午夜，如 22:00–02:00。</p><label class="continue-label">上映后继续监测至 <input type="date" name="continueUntil" value="${rule.continueUntil}"></label><p class="note">留空仅提醒正式上映前的开票。填入日期后，包含该日期在内继续监测。</p><label><input type="checkbox" name="paused" ${checked(rule.paused)}> 暂停这部电影的提醒，保留星标</label><div class="actions"><button class="primary" type="submit">保存提醒规则</button><button class="secondary" type="button" data-reset-rule="${esc(movie.id)}">恢复默认规则</button></div></fieldset><p class="form-feedback" role="status" id="rule-feedback"></p></form><p class="note">当前：${monitorEligible(movie, rule) ? (movie.active ? "按规则持续监测" : "尚未星标") : rule.paused ? "该片提醒已暂停" : "已超过监测日期，星标仍保留"}。修改规则不会补发已过去的开票事件；新出现或恢复可售的匹配场次会继续提醒。</p></details>`;
 }
 function openDetail(id) {
   const movie = get()?.movies.find((m) => m.id === id);
@@ -317,6 +323,7 @@ function openDetail(id) {
   previousFocus = document.activeElement;
   const dialog = document.querySelector("#movie-dialog");
   dialog.innerHTML = detail(movie, get());
+  restoreDisclosures(dialog);
   dialog.showModal();
   const url = new URL(location.href);
   url.searchParams.set("movie", id);
@@ -325,6 +332,7 @@ function openDetail(id) {
 }
 function closeDetail() {
   const dialog = document.querySelector("#movie-dialog");
+  rememberDisclosures(dialog);
   dialog.close();
   detailId = null;
   modalDirty = false;
@@ -358,12 +366,14 @@ export function updateDetail() {
     if (status) status.innerHTML = filmStatus(movie, get());
     return;
   }
+  rememberDisclosures(dialog);
   const scroll = dialog.scrollTop,
     lists = [...dialog.querySelectorAll(".session-list")].map(
       (el) => el.scrollTop,
     ),
     focus = captureFocus(dialog);
   dialog.innerHTML = detail(movie, get());
+  restoreDisclosures(dialog);
   restoreFocus(dialog, focus);
   [...dialog.querySelectorAll(".session-list")].forEach(
     (el, i) => (el.scrollTop = lists[i] || 0),
