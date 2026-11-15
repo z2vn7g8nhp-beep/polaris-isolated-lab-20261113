@@ -16,6 +16,7 @@ async function setup(t,{cache=false}={}){
   globalThis.window=new EventTarget();
   globalThis.fetch=(url,options={})=>{
     assert.equal(options.method||'GET','GET');
+    if(String(url).includes('ref=watchdog-state'))return Promise.resolve(new Response('{}',{status:404}));
     const name=String(url).startsWith('./')?'page':new URL(url).pathname.split('/').at(-1);
     assert.ok(['page','public.json','preferences.enc.json','private.enc.json'].includes(name));
     calls.push(name);return new Promise(resolve=>waiting.set(name,resolve));

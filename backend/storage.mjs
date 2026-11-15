@@ -6,6 +6,7 @@ import worker from "./monitor.mjs";
 import { normalizeRule } from "../docs/rules.mjs";
 import { validateSubscription } from "./push.mjs";
 import { vapidKeys } from "./push.mjs";
+import { normalizePlannerPrefs } from "../docs/planner-model.mjs";
 
 export function dbEnv(path = ":memory:", master = "test-only") {
   const db = new DatabaseSync(path);
@@ -84,6 +85,7 @@ export async function applyPreferences(env, prefs) {
   )
     throw new Error("偏好数据格式无效");
   if (value(env, "preferences_revision") === prefs.revision) return false;
+  const planner = normalizePlannerPrefs(prefs);
   const rules = {};
   if (prefs.movieRules !== undefined) {
     if (
@@ -149,6 +151,13 @@ export async function applyPreferences(env, prefs) {
   )
     throw new Error("倒计时电影编号无效");
   const current = await call(env, "state");
+  set(env, "notification_prefs", planner.notificationPrefs);
+  set(env, "film_journal", planner.filmJournal);
+  set(env, "rule_templates", planner.ruleTemplates);
+  set(env, "default_rule_template", planner.defaultRuleTemplateId);
+  // Re-evaluate policy-deferred events after a preference change, preserving
+  // actual transport retry backoff.
+  env.db.prepare("UPDATE radar_events SET next_try=0 WHERE sent_at IS NULL AND cancelled=0 AND attempts=0").run();
   if (prefs.movieRules !== undefined) set(env, "movie_rules", rules);
   if (prefs.starRevisions) set(env, "star_revisions", prefs.starRevisions);
   if (prefs.readEvents) set(env, "read_events", prefs.readEvents);

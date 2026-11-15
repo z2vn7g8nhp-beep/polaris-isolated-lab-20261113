@@ -1,6 +1,6 @@
-import { api } from "./client.mjs?v=calm-1";
+import { api } from "./client.mjs?v=planner-1";
 import { posterUrl } from "./catalog.mjs?v=calm-1";
-import { chinaDay } from "./rules.mjs";
+import { chinaDay } from "./rules.mjs?v=planner-1";
 import { countdownParts, countdownMovie } from "./countdown-model.mjs";
 const esc = (s) =>
   String(s ?? "").replace(

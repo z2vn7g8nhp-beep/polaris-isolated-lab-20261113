@@ -1,7 +1,8 @@
+import { moviePlanner, ruleTemplateControls } from "./planner.mjs?v=planner-1";
 import { icon, wishCount, rememberDisclosures, restoreDisclosures } from "./ui.mjs?v=journal-3";
 import { posterUrl } from "./catalog.mjs?v=calm-1";
 import { captureFocus, restoreFocus } from "./dom-state.mjs";
-import { api, rotateToken, deviceId } from "./client.mjs?v=calm-1";
+import { api, rotateToken, deviceId } from "./client.mjs?v=planner-1";
 import {
   chinaDay,
   countdown,
@@ -9,7 +10,7 @@ import {
   visibleMovies,
   matchesSession,
   monitorEligible,
-} from "./rules.mjs";
+} from "./rules.mjs?v=planner-1";
 function getLocal(key) {
   try {
     return localStorage.getItem(key);
@@ -294,11 +295,11 @@ function detail(movie, data) {
     .map((c, i) => {
       const sessions = rows.filter((r) => r.cinema_id === c.id),
         check = data.checks?.[i];
-      return `<div class="session-cinema"><div class="session-heading"><strong>${esc(c.short)}</strong><small>检查：${stamp(check?.checked)}</small></div>${sessions.length ? `<div class="session-list">${sessions.map((r) => `<div class="session-row ${r.available ? "is-available" : "is-unavailable"} ${matchesSession(r, rule) ? "matches" : "outside-rule"}"><div><strong>${esc(r.starts_at.slice(5, 10))} ${esc(r.starts_at.slice(11, 16))}</strong><small>${esc(r.hall)} ${esc(r.format)}${matchesSession(r, rule) ? "" : " · 不在提醒范围"}</small></div><span>${r.available ? "已观测可售" : "暂不可售"}</span>${safePurchase(r.url) ? `<a class="secondary" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">猫眼 ↗</a>` : ""}</div>`).join("")}</div>` : `<p class="note">${check ? "本次检查未观测到该片未来场次。" : "尚未完成该影院的场次检查。"}</p>`}</div>`;
+      return `<div class="session-cinema"><div class="session-heading"><strong>${esc(c.short)}</strong><small>检查：${stamp(check?.checked)}</small></div>${sessions.length ? `<div class="session-list">${sessions.map((r) => `<div class="session-row ${r.available ? "is-available" : "is-unavailable"} ${matchesSession(r, rule) ? "matches" : "outside-rule"}"><div><strong>${esc(r.starts_at.slice(5, 10))} ${esc(r.starts_at.slice(11, 16))}</strong><small>${esc(r.hall)} ${esc(r.format)}${matchesSession(r, rule) ? "" : " · 不在提醒范围"}</small></div><span>${r.available ? "已观测可售" : "暂不可售"}</span><button class="secondary" data-book-session="${esc(r.id)}">记录购票／日历</button>${safePurchase(r.url) ? `<a class="secondary" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">猫眼 ↗</a>` : ""}</div>`).join("")}</div>` : `<p class="note">${check ? "本次检查未观测到该片未来场次。" : "尚未完成该影院的场次检查。"}</p>`}</div>`;
     })
     .join(
       "",
-    )}</section><details class="detail-section rule-disclosure" data-disclosure="rules-${esc(movie.id)}"><summary id="rule-summary"><span>提醒规则<small>${rule.paused ? "已暂停提醒" : [rule.cinemas.length ? rule.cinemas.length + " 家影院" : "全部影院", rule.formats.length ? rule.formats.join(" / ") : "不限制式", rule.weekdays.length ? "已选 " + rule.weekdays.length + " 天" : "每天", rule.from || rule.until ? "已设日期范围" : "", rule.timeFrom || rule.timeUntil ? "已设时段" : "", rule.continueUntil ? "监测至 " + rule.continueUntil : "上映前提醒"].filter(Boolean).map(esc).join(" · ")}</small></span><span class="disclosure-hint">编辑</span></summary><h3 class="rule-heading">只为你想看的场次提醒</h3><p class="note">规则按北京时间匹配。留空表示不限；电影需要星标后才会监测。</p><form id="rule-form" data-movie="${esc(movie.id)}">${data.connected && !data.personalReady ? '<p class="note">正在同步原有规则，请稍候…</p>' : ""}<fieldset class="rule-body" ${data.connected && !data.personalReady ? "disabled" : ""}><fieldset><legend>影院</legend>${data.cinemas.map((c) => `<label><input type="checkbox" name="cinemas" value="${esc(c.id)}" ${checked(rule.cinemas.includes(c.id))}> ${esc(c.short)}</label>`).join("")}</fieldset><fieldset><legend>制式／影厅关键词 · 任一匹配</legend>${formats.map((f) => `<label><input type="checkbox" name="formats" value="${esc(f)}" ${checked(rule.formats.includes(f))}> ${esc(f)}</label>`).join("")}<label class="rule-custom">其他关键词 <input name="customFormat" maxlength="32" placeholder="例如：激光"></label></fieldset><fieldset><legend>星期</legend>${[
+    )}</section><details class="detail-section rule-disclosure" data-disclosure="rules-${esc(movie.id)}"><summary id="rule-summary"><span>提醒规则<small>${rule.paused ? "已暂停提醒" : [rule.cinemas.length ? rule.cinemas.length + " 家影院" : "全部影院", rule.formats.length ? rule.formats.join(" / ") : "不限制式", rule.weekdays.length ? "已选 " + rule.weekdays.length + " 天" : "每天", rule.from || rule.until ? "已设日期范围" : "", rule.timeFrom || rule.timeUntil ? "已设时段" : "", rule.continueUntil ? "监测至 " + rule.continueUntil : "上映前提醒"].filter(Boolean).map(esc).join(" · ")}</small></span><span class="disclosure-hint">编辑</span></summary><h3 class="rule-heading">只为你想看的场次提醒</h3><p class="note">规则按北京时间匹配。留空表示不限；电影需要星标后才会监测。</p><form id="rule-form" data-movie="${esc(movie.id)}">${data.connected && !data.personalReady ? '<p class="note">正在同步原有规则，请稍候…</p>' : ""}<fieldset class="rule-body" ${data.connected && !data.personalReady ? "disabled" : ""}>${ruleTemplateControls(movie, data)}<fieldset><legend>影院</legend>${data.cinemas.map((c) => `<label><input type="checkbox" name="cinemas" value="${esc(c.id)}" ${checked(rule.cinemas.includes(c.id))}> ${esc(c.short)}</label>`).join("")}</fieldset><fieldset><legend>制式／影厅关键词 · 任一匹配</legend>${formats.map((f) => `<label><input type="checkbox" name="formats" value="${esc(f)}" ${checked(rule.formats.includes(f))}> ${esc(f)}</label>`).join("")}<label class="rule-custom">其他关键词 <input name="customFormat" maxlength="32" placeholder="例如：激光"></label></fieldset><fieldset><legend>星期</legend>${[
     [1, "一"],
     [2, "二"],
     [3, "三"],
@@ -313,7 +314,7 @@ function detail(movie, data) {
     )
     .join(
       "",
-    )}</fieldset><div class="rule-dates"><label>场次开始日期<input type="date" name="from" value="${rule.from}"></label><label>场次结束日期<input type="date" name="until" value="${rule.until}"></label><label>开始时间<input type="time" name="timeFrom" value="${rule.timeFrom}"></label><label>结束时间<input type="time" name="timeUntil" value="${rule.timeUntil}"></label></div><p class="note">结束时间早于开始时间表示跨午夜，如 22:00–02:00。</p><label class="continue-label">上映后继续监测至 <input type="date" name="continueUntil" value="${rule.continueUntil}"></label><p class="note">留空仅提醒正式上映前的开票。填入日期后，包含该日期在内继续监测。</p><label><input type="checkbox" name="paused" ${checked(rule.paused)}> 暂停这部电影的提醒，保留星标</label><div class="actions"><button class="primary" type="submit">保存提醒规则</button><button class="secondary" type="button" data-reset-rule="${esc(movie.id)}">恢复默认规则</button></div></fieldset><p class="form-feedback" role="status" id="rule-feedback"></p></form><p class="note">当前：${monitorEligible(movie, rule) ? (movie.active ? "按规则持续监测" : "尚未星标") : rule.paused ? "该片提醒已暂停" : "已超过监测日期，星标仍保留"}。修改规则不会补发已过去的开票事件；新出现或恢复可售的匹配场次会继续提醒。</p></details>`;
+    )}</fieldset><div class="rule-dates"><label>场次开始日期<input type="date" name="from" value="${rule.from}"></label><label>场次结束日期<input type="date" name="until" value="${rule.until}"></label><label>开始时间<input type="time" name="timeFrom" value="${rule.timeFrom}"></label><label>结束时间<input type="time" name="timeUntil" value="${rule.timeUntil}"></label></div><p class="note">结束时间早于开始时间表示跨午夜，如 22:00–02:00。</p><label class="continue-label">上映后继续监测至 <input type="date" name="continueUntil" value="${rule.continueUntil}"></label><p class="note">留空仅提醒正式上映前的开票。填入日期后，包含该日期在内继续监测。</p><label><input type="checkbox" name="paused" ${checked(rule.paused)}> 暂停这部电影的提醒，保留星标</label><div class="actions"><button class="primary" type="submit">保存提醒规则</button><button class="secondary" type="button" data-reset-rule="${esc(movie.id)}">恢复默认规则</button></div></fieldset><p class="form-feedback" role="status" id="rule-feedback"></p></form><p class="note">当前：${monitorEligible(movie, rule) ? (movie.active ? "按规则持续监测" : "尚未星标") : rule.paused ? "该片提醒已暂停" : "已超过监测日期，星标仍保留"}。修改规则不会补发已过去的开票事件；新出现或恢复可售的匹配场次会继续提醒。</p></details>${moviePlanner(movie, data)}`;
 }
 function openDetail(id) {
   const movie = get()?.movies.find((m) => m.id === id);

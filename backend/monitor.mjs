@@ -1,4 +1,5 @@
 import { sendPush, validateSubscription } from "./push.mjs";
+import { normalizeNotificationPrefs, notificationDue, validDay } from "../docs/planner-model.mjs";
 export const CADENCE = Object.freeze({
   cinemaMinutes: 2,
   cinemaCooldownSeconds: 110,
@@ -132,6 +133,11 @@ async function source(path) {
     throw new RiskError("猫眼要求人工验证");
   return data;
 }
+function mergeMovie(previous, incoming) {
+  const merged = { ...previous, ...incoming };
+  if (validDay(previous?.rt) && !validDay(incoming.rt)) merged.rt = previous.rt;
+  return merged;
+}
 function movieStatements(env, movies) {
   return movies.map((m) =>
     q(
@@ -162,7 +168,7 @@ async function seed(env) {
   if (!(await get(env, "catalog_updated")))
     await set(env, "catalog_updated", now());
 }
-async function crypt(env, value, decrypt = false) {
+export async function crypt(env, value, decrypt = false) {
   if (!env.BARK_ENCRYPTION_KEY) throw new Error("服务端加密密钥未配置");
   const bytes = Uint8Array.from(atob(env.BARK_ENCRYPTION_KEY), (c) =>
     c.charCodeAt(0),
@@ -226,13 +232,15 @@ async function notificationMode(env) {
         : "off")
   );
 }
-async function notify(
+export async function notify(
   env,
   title,
   body,
   id,
   forcePush = false,
   deviceId = null,
+  navigateId = id,
+  targetView = "events",
 ) {
   if (forcePush || (await notificationMode(env)) === "push") {
     const devices = await get(env, "push_devices");
@@ -254,7 +262,7 @@ async function notify(
           continue;
         }
         try {
-          await sendPush(env, device.subscription, { title, body, id });
+          await sendPush(env, device.subscription, { title, body, id, navigateId, targetView });
           acked.push(device.registration);
           device.error = null;
           device.lastSuccess = now();
@@ -288,7 +296,7 @@ async function notify(
     const subscription = await get(env, "push_subscription");
     if (!subscription) throw new Error("请在主屏幕网站中重新启用手机通知");
     try {
-      await sendPush(env, subscription, { title, body, id });
+      await sendPush(env, subscription, { title, body, id, navigateId, targetView });
       await set(env, "push_error", null);
     } catch (error) {
       if ([404, 410].includes(error.statusCode)) {
@@ -324,12 +332,19 @@ async function deliver(env) {
   const events = (
     await q(
       env,
-      `SELECT e.* FROM radar_events e LEFT JOIN radar_stars s ON e.movie_id=s.movie_id WHERE e.sent_at IS NULL AND e.cancelled=0 AND e.next_try<=? AND (e.movie_id IS NULL OR s.active=1) ORDER BY e.created_at LIMIT 8`,
+      `SELECT e.* FROM radar_events e LEFT JOIN radar_stars s ON e.movie_id=s.movie_id WHERE e.sent_at IS NULL AND e.cancelled=0 AND e.next_try<=? AND (e.movie_id IS NULL OR s.active=1) ORDER BY e.created_at LIMIT 40`,
       now(),
     ).all()
   ).results;
+  const prefs = normalizeNotificationPrefs(await get(env, "notification_prefs", {}));
+  const rules = await get(env, "movie_rules", {}), ready = [];
   for (const e of events) {
     if (Date.now() >= (env.DELIVERY_DEADLINE || Infinity)) break;
+    const plan = notificationDue(e, rules[e.movie_id], prefs);
+    if (plan.due > now()) {
+      await q(env, "UPDATE radar_events SET next_try=? WHERE id=?", Math.ceil(plan.due), e.id).run();
+      continue;
+    }
     // Re-read star immediately before IO so manual stop cancels queued work.
     if (e.movie_id) {
       const star = await q(
@@ -360,8 +375,8 @@ async function deliver(env) {
           snapshots.get(r.cinema_id).get(r.id)?.available === true);
       if (
         movie &&
-        (!monitorEligible(JSON.parse(movie.data), rule) ||
-          (detail?.sessions && !detail.sessions.some(eligible)))
+        (rule?.paused || (e.kind === "release" && (!monitorEligible(JSON.parse(movie.data), rule) ||
+          (detail?.sessions && !detail.sessions.some(eligible)))))
       ) {
         await q(
           env,
@@ -387,32 +402,55 @@ async function deliver(env) {
         }
       }
     }
+    ready.push({ event: e, plan });
+  }
+  const groups = new Map();
+  for (const { event, plan } of ready.sort((a, b) => Number(b.plan.urgent) - Number(a.plan.urgent))) {
+    const key = plan.digest ? "digest" : event.id;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(event);
+  }
+  for (const group of groups.values()) {
+    if (Date.now() >= env.DELIVERY_DEADLINE) break;
     try {
-      await notify(env, e.title, e.body, e.id);
-      await q(
-        env,
-        "UPDATE radar_events SET sent_at=? WHERE id=?",
-        now(),
-        e.id,
-      ).run();
+      await notifyGroup(env, group, mode);
+      await env.DB.batch(group.map((e) => q(env, "UPDATE radar_events SET sent_at=? WHERE id=?", now(), e.id)));
       await set(env, "bark_error", null);
-    } catch (error) {
-      await q(
-        env,
-        "UPDATE radar_events SET attempts=attempts+1,next_try=? WHERE id=?",
-        now() + Math.min(3600, 60 * 2 ** Math.min(e.attempts, 6)),
-        e.id,
-      ).run();
-      if (mode === "bark")
-        await set(
-          env,
-          "bark_error",
-          "推送失败，已保留提醒并安排重试；可在设置中测试 Bark。",
-        );
+    } catch {
+      await env.DB.batch(group.map((e) => q(env, "UPDATE radar_events SET attempts=attempts+1,next_try=? WHERE id=?", now() + Math.min(3600, 60 * 2 ** Math.min(e.attempts, 6)), e.id)));
+      if (mode === "bark") await set(env, "bark_error", "推送失败，已保留提醒并安排重试；可在设置中测试 Bark。");
       break;
     }
   }
 }
+function digestMessage(events) {
+  return { title: `电影消息汇总 · ${events.length} 条`, body: events.slice(0, 8).map((e) => e.title + "\n" + e.body.split("\n").slice(0, 2).join(" · ")).join("\n\n") + (events.length > 8 ? "\n更多消息请打开提醒记录。" : "") };
+}
+async function notifyGroup(env, events, mode) {
+  if (events.length === 1) return notify(env, events[0].title, events[0].body, events[0].id);
+  const devices = mode === "push" ? await get(env, "push_devices") : null;
+  if (devices === null) {
+    const message = digestMessage(events);
+    return notify(env, message.title, message.body, events[0].id);
+  }
+  const targets = devices.filter((d) => !d.expired);
+  if (!targets.length) throw new Error("没有可用的通知设备");
+  let failure = false;
+  for (const device of targets) {
+    const pending = [];
+    for (const event of events) if (!(await get(env, "delivery_" + event.id, [])).includes(device.registration)) pending.push(event);
+    if (!pending.length) continue;
+    try {
+      const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pending.map((e) => e.id).sort().join(","))));
+      const batchId = "digest-" + [...hash].slice(0, 12).map((b) => b.toString(16).padStart(2, "0")).join("");
+      const message = pending.length === 1 ? pending[0] : digestMessage(pending);
+      await notify(env, message.title, message.body, batchId, true, device.id, pending[0].id);
+      for (const event of pending) await set(env, "delivery_" + event.id, [...new Set([...(await get(env, "delivery_" + event.id, [])), device.registration])]);
+    } catch { failure = true; }
+  }
+  if (failure) throw new Error("部分设备发送失败");
+}
+
 function sessionBody(cinema, rows) {
   return (
     `${cinema} 新开售 ${rows.length} 场\n` +
@@ -433,7 +471,7 @@ async function ingestCinema(env, data, cinema) {
     .results;
   const map = new Map(existing.map((r) => [r.id, JSON.parse(r.data)]));
   // Cinema summaries lack release dates: preserve richer catalog metadata.
-  const merged = movies.map((m) => ({ ...map.get(String(m.id)), ...m }));
+  const merged = movies.map((m) => mergeMovie(map.get(String(m.id)), m));
   if (merged.length) await env.DB.batch(movieStatements(env, merged));
   const stars = new Set(
     (
@@ -533,6 +571,8 @@ export async function updateCatalog(env, at = now()) {
     ),
   );
   const refreshed = await get(env, "catalog_refreshed", {});
+  const releasePrefs = normalizeNotificationPrefs(await get(env, "notification_prefs", {}));
+  const releaseStars = new Set((await q(env, "SELECT movie_id FROM radar_stars WHERE active=1").all()).results.map((r) => r.movie_id));
   cycle = cycle || {
     scheduled: next || at,
     phase: "upcoming",
@@ -550,11 +590,17 @@ export async function updateCatalog(env, at = now()) {
   }
   async function save(movies) {
     if (!movies.length) return;
-    const merged = movies.map((movie) => ({
-      ...known.get(String(movie.id)),
-      ...movie,
-    }));
-    await env.DB.batch(movieStatements(env, merged));
+    const merged = movies.map((movie) => mergeMovie(known.get(String(movie.id)), movie));
+    const statements = movieStatements(env, merged);
+    for (const movie of merged) {
+      const id = String(movie.id), previous = known.get(id);
+      if (releasePrefs.releaseChanges && releaseStars.has(id) && refreshed[id] && previous && validDay(movie.rt) && previous.rt !== movie.rt) {
+        const eventId = crypto.randomUUID(), old = validDay(previous.rt) ? previous.rt : "档期待定";
+        statements.push(q(env, "INSERT INTO radar_events(id,movie_id,kind,title,body,created_at) VALUES (?,?,?,?,?,?)", eventId, id, "release-date", `${movie.nm} · ${old === "档期待定" ? "已定档" : "上映日期变更"}`, `${old} → ${movie.rt}\n根据本次猫眼电影资料更新；最终档期以片方公布为准。`, now()));
+        statements.push(q(env, "INSERT INTO radar_kv VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", "event_" + eventId, JSON.stringify({ oldRelease: previous.rt || "", newRelease: movie.rt })));
+      }
+    }
+    await env.DB.batch(statements);
     for (const movie of merged) {
       known.set(String(movie.id), movie);
       refreshed[String(movie.id)] = at;
@@ -793,6 +839,10 @@ async function state(env) {
     sessions,
     healthHistory: await get(env, "health_history", []),
     movieRules: await get(env, "movie_rules", {}),
+    notificationPrefs: normalizeNotificationPrefs(await get(env, "notification_prefs", {})),
+    filmJournal: await get(env, "film_journal", {}),
+    ruleTemplates: await get(env, "rule_templates", []),
+    defaultRuleTemplateId: await get(env, "default_rule_template", ""),
     starRevisions: await get(env, "star_revisions", {}),
     readEvents: await get(env, "read_events", []),
     receivedTest: await get(env, "received_test", null),

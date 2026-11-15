@@ -1,6 +1,7 @@
-import { countdownHero, installCountdown } from "./countdown.mjs?v=journal-3";
+import { installPlanner, sessionOverview, journalView, plannerSettings } from "./planner.mjs?v=planner-1";
+import { countdownHero, installCountdown } from "./countdown.mjs?v=planner-1";
 import { captureFocus, restoreFocus } from "./dom-state.mjs";
-import { monitorEligible, visibleMovies } from "./rules.mjs";
+import { monitorEligible, visibleMovies } from "./rules.mjs?v=planner-1";
 import {
   installFeatures,
   selection,
@@ -12,18 +13,18 @@ import {
   eventView,
   browsing,
   restoreBrowsing,
-} from "./features.mjs?v=journal-3";
-import { api, connect, disconnect, deviceId } from "./client.mjs?v=calm-1";
+} from "./features.mjs?v=planner-1";
+import { api, connect, disconnect, deviceId } from "./client.mjs?v=planner-1";
 import {
   pushSupport,
   enablePhonePush,
   disablePhonePush,
-} from "./push.mjs?v=push-2";
+} from "./push.mjs?v=planner-1";
 import { isComing, groupComing, posterUrl } from "./catalog.mjs?v=calm-1";
 import { checkHealth } from "./status.mjs?v=calm-1";
 import { icon, wishCount, rememberDisclosures, restoreDisclosures } from "./ui.mjs?v=journal-3";
 let data = null,
-  view = ["library", "stars", "events", "settings"].includes(
+  view = ["library", "sessions", "stars", "journal", "events", "settings"].includes(
     new URLSearchParams(location.search).get("view"),
   )
     ? new URLSearchParams(location.search).get("view")
@@ -59,12 +60,18 @@ const features = installFeatures({
   rerender: () => render(),
   toast: (text) => toast(text),
 });
+installPlanner({ getData: () => data, refresh: load, rerender: () => render(), toast });
 function toast(text) {
   $("#toast").textContent = text;
-  $("#toast").classList.remove("hidden");
+  document.querySelectorAll(".dialog-toast").forEach((el) => el.remove());
+  const modal = [...document.querySelectorAll("dialog[open]")].at(-1);
+  $("#toast").classList.toggle("hidden", !!modal);
+  const target = modal ? $("#toast").cloneNode(true) : $("#toast");
+  if (modal) { target.removeAttribute("id"); target.classList.add("dialog-toast"); modal.append(target); }
+  target.classList.remove("hidden");
   clearTimeout(window.toastTimer);
   window.toastTimer = setTimeout(
-    () => $("#toast").classList.add("hidden"),
+    () => { target.classList.add("hidden"); if (modal) target.remove(); },
     4200,
   );
 }
@@ -220,7 +227,7 @@ function library() {
   return `${view === "library" ? countdownHero(data) : '<div class="hero"><div><h1>我的星标</h1><p class="intro">想看的电影，和它们的下一场。</p></div></div>'}<div class="stats"><div class="stat"><label>监测中</label><strong>${data.personalReady === false ? "同步中" : stars}<span style="font-size:12px;color:var(--muted);margin-left:7px">部</span></strong></div><div class="stat"><label>监测影院</label><strong>2<span style="font-size:12px;color:var(--muted);margin-left:7px">家</span></strong><small>MOMOPARK / 西安荟聚</small></div><div class="stat"><label>最近检查</label><strong style="font-size:19px;padding:7px 0">${esc(time(data.lastSuccess))}</strong><button class="text-button" data-action="tick">检查开票 ↻</button></div></div>${banner()}<div class="tools"><div class="tabs" role="group" aria-label="电影分类"><button data-filter="upcoming" class="${filter === "upcoming" ? "active" : ""}" aria-pressed="${filter === "upcoming"}">猫眼待映</button><button data-filter="released" class="${filter === "released" ? "active" : ""}" aria-pressed="${filter === "released"}">已上映</button><button data-filter="all" class="${filter === "all" ? "active" : ""}" aria-pressed="${filter === "all"}">全部电影</button></div><label class="search">${icon("search")}<input id="search" type="search" placeholder="搜索片名…" aria-label="搜索片名" value="${esc(search)}"></label></div>${libraryControls({ ...data, movies: visibleMovies(baseMovies(), { search, sort: browsing.sort }) })}<p class="countlabel" id="listcount"></p><div class="grid" id="cards"></div><div class="footnote"><span>片库整轮更新 ${esc(time(data.catalogCompleted || data.catalogUpdated))}</span></div>`;
 }
 function settings() {
-  return `<div class="hero"><div><h1>监测与推送</h1></div></div>${onboarding(data)}${banner()}<div class="settings-steps"><details class="setup-step" data-disclosure="setup-connection" ${!data.connected ? "open" : ""}><summary id="setup-connection-summary"><span class="step-number">1</span><span>连接片库<small>加密同步星标和提醒设置</small></span><span class="step-state">${data.connected ? "已连接" : "待连接"}</span></summary>${connectionBox()}</details><details class="setup-step" data-disclosure="setup-notifications" ${data.connected ? "open" : ""}><summary id="setup-notifications-summary"><span class="step-number">2</span><span>启用并测试通知<small>让开票消息找到你</small></span><span class="step-state">${data.pushConfigured ? "已启用" : "待设置"}</span></summary>${phoneBox()}</details></div>${settingsExtras(data)}<details class="settings-advanced" data-disclosure="advanced-settings"><summary id="advanced-settings-summary">高级设置<small>密钥迁移、Bark 与监测说明</small></summary>${tokenMigration(data)}<div class="settingsgrid"><section class="section"><h2>Bark（可选）</h2><p>复用已有设备 Key，使用独立「电影开票」分组。不会修改或覆盖你的其他通知。</p><form id="barkform"><label for="barkkey" class="note">设备 Key</label><br><input id="barkkey" name="key" type="password" autocomplete="off" placeholder="${data.barkConfigured ? "已加密保存；输入可更换" : "从 Bark App 复制设备 Key"}" required minlength="8"><div class="actions"><button type="submit" class="primary">${data.barkConfigured ? "更新 Key" : "保存并启用"}</button>${data.barkConfigured ? '<button type="button" class="secondary" data-action="bark/test">发送测试通知</button><button type="button" class="secondary" data-action="bark/remove">移除</button>' : ""}</div></form><div class="privacy">⌑ Key 加密保存于新仓库，公开文件中不会出现明文。<br>若 Bark 显示 https://api.day.app/你的Key/，只复制中间的 Key。</div>${data.barkError ? '<p style="color:#e6c38b">' + esc(data.barkError) + "</p>" : ""}</section><section class="section"><h2>监测状态</h2><p><span class="dot"></span>${statusLabel()}</p><div class="note">${data.schedule ? `配置外部定时后目标每 ${cinemaMinutes()} 分钟检查两家影院，GitHub 原生每 ${Number(data.schedule.fallbackMinutes) || 5} 分钟计划保留兜底。任务启动可能延迟，请以最近成功检查时间为准。` : "调度状态尚未确认。"}<br>猫眼待映、热映名单、想看人数和电影资料以每 5 分钟整轮更新为目标；实际时间受任务启动和来源响应影响。请求串行进行，连续失败自动退避；遇到验证码或访问限制，暂停并通过已启用的通知渠道提示。<br>低频轮询可能错过短暂开票窗口，不保证秒级送达。</div><div class="actions"><button class="secondary" data-action="tick">立即检查一次</button><button class="secondary" data-action="${data.paused ? "resume" : "pause"}">${data.paused ? "手动恢复" : "暂停全部监测"}</button></div></section></div></details><section class="section"><h2>监测影院</h2>${data.cinemas.map((c, i) => `<div class="cinemaitem"><div><strong>${esc(c.name)}</strong><br><small>${esc(c.address)} · 猫眼 ID ${c.id}</small></div><div><small>最近检查 ${esc(time(data.checks[i]?.checked))}</small><br><a href="https://m.maoyan.com/cinema/${c.id}" target="_blank" rel="noopener noreferrer">在猫眼打开 ↗</a></div></div>`).join("")}</section><section class="section"><h2>什么算一轮新开票？</h2><div class="note">新场次首次可售、明确不可售后再次可售，以及可识别的售票批次变化，都会产生提醒。同一状态反复出现不会重复提醒。首次星标后，当前已可售场次也会提醒一次。<br>默认仅提醒正式上映前的开票。可在电影详情设置上映后继续监测的截止日期；星标始终保留。提醒发送失败会保留并重试；手动取消星标会取消尚未发送的提醒。轮询间隔内发生且结束的变化可能无法被观察到。</div></section>`;
+  return `<div class="hero"><div><h1>监测与推送</h1></div></div>${onboarding(data)}${banner()}<div class="settings-steps"><details class="setup-step" data-disclosure="setup-connection" ${!data.connected ? "open" : ""}><summary id="setup-connection-summary"><span class="step-number">1</span><span>连接片库<small>加密同步星标和提醒设置</small></span><span class="step-state">${data.connected ? "已连接" : "待连接"}</span></summary>${connectionBox()}</details><details class="setup-step" data-disclosure="setup-notifications" ${data.connected ? "open" : ""}><summary id="setup-notifications-summary"><span class="step-number">2</span><span>启用并测试通知<small>让开票消息找到你</small></span><span class="step-state">${data.pushConfigured ? "已启用" : "待设置"}</span></summary>${phoneBox()}</details></div>${settingsExtras(data)}${plannerSettings(data)}<details class="settings-advanced" data-disclosure="advanced-settings"><summary id="advanced-settings-summary">高级设置<small>密钥迁移、Bark 与监测说明</small></summary>${tokenMigration(data)}<div class="settingsgrid"><section class="section"><h2>Bark（可选）</h2><p>复用已有设备 Key，使用独立「电影开票」分组。不会修改或覆盖你的其他通知。</p><form id="barkform"><label for="barkkey" class="note">设备 Key</label><br><input id="barkkey" name="key" type="password" autocomplete="off" placeholder="${data.barkConfigured ? "已加密保存；输入可更换" : "从 Bark App 复制设备 Key"}" required minlength="8"><div class="actions"><button type="submit" class="primary">${data.barkConfigured ? "更新 Key" : "保存并启用"}</button>${data.barkConfigured ? '<button type="button" class="secondary" data-action="bark/test">发送测试通知</button><button type="button" class="secondary" data-action="bark/remove">移除</button>' : ""}</div></form><div class="privacy">⌑ Key 加密保存于新仓库，公开文件中不会出现明文。<br>若 Bark 显示 https://api.day.app/你的Key/，只复制中间的 Key。</div>${data.barkError ? '<p style="color:#e6c38b">' + esc(data.barkError) + "</p>" : ""}</section><section class="section"><h2>监测状态</h2><p><span class="dot"></span>${statusLabel()}</p><div class="note">${data.schedule ? `配置外部定时后目标每 ${cinemaMinutes()} 分钟检查两家影院，GitHub 原生每 ${Number(data.schedule.fallbackMinutes) || 5} 分钟计划保留兜底。任务启动可能延迟，请以最近成功检查时间为准。` : "调度状态尚未确认。"}<br>猫眼待映、热映名单、想看人数和电影资料以每 5 分钟整轮更新为目标；实际时间受任务启动和来源响应影响。请求串行进行，连续失败自动退避；遇到验证码或访问限制，暂停并通过已启用的通知渠道提示。<br>低频轮询可能错过短暂开票窗口，不保证秒级送达。</div><div class="actions"><button class="secondary" data-action="tick">立即检查一次</button><button class="secondary" data-action="${data.paused ? "resume" : "pause"}">${data.paused ? "手动恢复" : "暂停全部监测"}</button></div></section></div></details><section class="section"><h2>监测影院</h2>${data.cinemas.map((c, i) => `<div class="cinemaitem"><div><strong>${esc(c.name)}</strong><br><small>${esc(c.address)} · 猫眼 ID ${c.id}</small></div><div><small>最近检查 ${esc(time(data.checks[i]?.checked))}</small><br><a href="https://m.maoyan.com/cinema/${c.id}" target="_blank" rel="noopener noreferrer">在猫眼打开 ↗</a></div></div>`).join("")}</section><section class="section"><h2>什么算一轮新开票？</h2><div class="note">新场次首次可售、明确不可售后再次可售，以及可识别的售票批次变化，都会产生提醒。同一状态反复出现不会重复提醒。首次星标后，当前已可售场次也会提醒一次。<br>默认仅提醒正式上映前的开票。可在电影详情设置上映后继续监测的截止日期；星标始终保留。提醒发送失败会保留并重试；手动取消星标会取消尚未发送的提醒。轮询间隔内发生且结束的变化可能无法被观察到。</div></section>`;
 }
 function events() {
   return eventView(data);
@@ -229,6 +236,8 @@ function render() {
   const names = {
     library: "电影片库",
     stars: "我的星标",
+    sessions: "场次总览",
+    journal: "我的手记",
     events: "提醒记录",
     settings: "监测与推送",
   };
@@ -244,7 +253,7 @@ function render() {
   });
   rememberDisclosures($("#content"));
   $("#content").innerHTML =
-    view === "settings" ? settings() : view === "events" ? events() : library();
+    view === "settings" ? settings() : view === "events" ? events() : view === "sessions" ? sessionOverview(data) : view === "journal" ? journalView(data) : library();
   if (view === "library" || view === "stars") renderCards();
   restoreDisclosures($("#content"));
   features.afterRender();
@@ -448,7 +457,7 @@ try {
     Object.assign(viewMemory, saved.viewMemory || {});
     if (!params.has("view") && !params.has("movie") && !params.has("event")) {
       restoreBrowsing(saved.browsing);
-      view = ["library", "stars", "events", "settings"].includes(saved.view)
+      view = ["library", "sessions", "stars", "journal", "events", "settings"].includes(saved.view)
         ? saved.view
         : view;
       filter = ["all", "released", "upcoming"].includes(saved.filter)

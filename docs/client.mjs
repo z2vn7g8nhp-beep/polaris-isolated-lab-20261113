@@ -1,6 +1,7 @@
-import { normalizeRule } from "./rules.mjs";
+import { normalizeRule } from "./rules.mjs?v=planner-1";
 import { keyBytes, sealPreferences, unseal } from "./crypto.mjs";
 import { newerPublic, mergeStatus } from "./status.mjs?v=calm-1";
+import { normalizePlannerPrefs, normalizeNotificationPrefs, normalizeTemplates, normalizeFilmJournal, normalizeJournalEntry, templatesFor } from "./planner-model.mjs?v=planner-1";
 const REPO = "z2vn7g8nhp-beep/polaris-isolated-lab-20261113";
 const API = `https://api.github.com/repos/${REPO}`;
 const storageKey = "polaris.github-token.v1";
@@ -36,6 +37,7 @@ let base = readCache(publicCacheKey),
   flight = null,
   syncing = false,
   syncError = null;
+let watchdogStatus = null;
 if (!Array.isArray(base?.movies)) base = null;
 const observers = new Set(),
   mutations = new Map();
@@ -209,6 +211,7 @@ export function connect(value) {
 }
 export function disconnect() {
   mutations.clear();
+  watchdogStatus = null;
   beginSession("");
   rawKey = null;
   prefs = null;
@@ -254,6 +257,7 @@ async function update(change) {
   const saved = await readPreferences(ctx);
   checkSession(ctx);
   const changed = change(structuredClone(saved.value));
+  normalizePlannerPrefs(changed);
   changed.revision = crypto.randomUUID();
   const publicKey = await (
     await fetch("./data/public-key.json", {
@@ -298,6 +302,8 @@ function currentState() {
   const combined = mergeStatus(base, latest);
   return {
     ...combined,
+    ...normalizePlannerPrefs(prefs || {}),
+    watchdogStatus,
     syncError,
     syncing,
     personalReady: !token || prefs !== null,
@@ -419,6 +425,9 @@ async function refresh() {
       writeCache(personalCacheKey, envelopes);
     };
     const results = await Promise.allSettled([
+      file("public.json", "watchdog-state", true, secret).then((saved) => {
+        if (current()) watchdogStatus = saved?.value || null;
+      }).catch(() => {}),
       file("public.json", "monitor-state", true, secret).then((remote) => {
         if (remote) acceptPublic(remote.value);
       }),
@@ -499,8 +508,13 @@ export async function api(path, body) {
       const result = await serial(() =>
         update((p) => {
           const stars = new Set(p.stars);
+          const wasStarred = stars.has(body.id);
           body.active ? stars.add(body.id) : stars.delete(body.id);
           p.stars = [...stars];
+          if (body.active && !wasStarred && p.defaultRuleTemplateId && !Object.hasOwn(p.movieRules || {}, body.id)) {
+            const template = templatesFor(p).find((t) => t.id === p.defaultRuleTemplateId);
+            if (template) p.movieRules = { ...p.movieRules, [body.id]: normalizeRule(template.rule) };
+          }
           p.starRevisions = {
             ...p.starRevisions,
             [body.id]: crypto.randomUUID(),
@@ -540,6 +554,56 @@ export async function api(path, body) {
         return p;
       }),
     );
+  if (["planner/settings", "template/save", "template/delete", "template/default", "template/apply", "journal/save", "journal/entry", "journal/entry-state", "journal/remove-entry"].includes(path))
+    return serial(() => update((p) => {
+      const ensureMovie = (id) => {
+        if (typeof id !== "string" || !base?.movies.some((m) => m.id === id)) throw new Error("请选择片库中的电影");
+        return id;
+      };
+      if (path === "planner/settings") p.notificationPrefs = normalizeNotificationPrefs(body);
+      if (path === "template/save") {
+        const item = { id: body.id || crypto.randomUUID(), name: body.name, rule: normalizeRule(body.rule) };
+        p.ruleTemplates = normalizeTemplates([...(p.ruleTemplates || []).filter((t) => t.id !== item.id), item]);
+      }
+      if (path === "template/delete") {
+        p.ruleTemplates = (p.ruleTemplates || []).filter((t) => t.id !== body.id);
+        if (p.defaultRuleTemplateId === body.id) p.defaultRuleTemplateId = "";
+      }
+      if (path === "template/default") {
+        if (body.id && !templatesFor(p).some((t) => t.id === body.id)) throw new Error("找不到这个规则模板");
+        p.defaultRuleTemplateId = body.id || "";
+      }
+      if (path === "template/apply") {
+        const template = templatesFor(p).find((t) => t.id === body.id);
+        if (!template) throw new Error("找不到这个规则模板");
+        const ids = body.allStars ? p.stars : body.movieIds;
+        if (!Array.isArray(ids) || !ids.length || ids.length > 2000) throw new Error("请至少选择一部电影");
+        p.movieRules = { ...p.movieRules };
+        for (const id of new Set(ids)) {
+          ensureMovie(id);
+          if (!body.onlyUnset || !Object.hasOwn(p.movieRules, id)) p.movieRules[id] = normalizeRule(template.rule);
+        }
+      }
+      if (path.startsWith("journal/")) {
+        const id = ensureMovie(body.id), journals = { ...p.filmJournal };
+        const record = journals[id] || { tags: [], review: "", entries: [] };
+        if (path === "journal/save") journals[id] = { ...record, tags: body.tags, review: body.review };
+        if (path === "journal/entry") {
+          const entry = normalizeJournalEntry({ ...body.entry, id: body.entry.id || crypto.randomUUID() });
+          journals[id] = { ...record, entries: [...record.entries, entry] };
+          if (body.stopMonitoring) p.movieRules = { ...p.movieRules, [id]: normalizeRule({ ...p.movieRules?.[id], paused: true }) };
+        }
+        if (path === "journal/entry-state") {
+          const target = record.entries.find((e) => e.id === body.entryId);
+          if (!target) throw new Error("找不到这条观影记录");
+          journals[id] = { ...record, entries: record.entries.map((e) => e.id === body.entryId ? normalizeJournalEntry({ ...e, type: body.type }) : e) };
+        }
+        if (path === "journal/remove-entry") journals[id] = { ...record, entries: record.entries.filter((e) => e.id !== body.entryId) };
+        p.filmJournal = normalizeFilmJournal(journals);
+      }
+      normalizePlannerPrefs(p);
+      return p;
+    }));
   if (path === "events/read")
     return serial(() =>
       update((p) => {

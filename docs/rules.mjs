@@ -12,6 +12,7 @@ export function normalizeRule(value = {}) {
     throw new Error("提醒规则格式无效");
   const r = {
     paused: value.paused === true,
+    priority: value.priority ?? "normal",
     cinemas: [],
     formats: [],
     weekdays: [],
@@ -21,6 +22,7 @@ export function normalizeRule(value = {}) {
     timeUntil: "",
     continueUntil: "",
   };
+  if (!["normal", "urgent"].includes(r.priority)) throw new Error("提醒优先级无效");
   for (const key of ["cinemas", "formats", "weekdays"]) {
     if (
       value[key] !== undefined &&

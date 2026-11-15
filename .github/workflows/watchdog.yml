@@ -1,0 +1,34 @@
+name: Independent monitor watchdog
+
+on:
+  schedule:
+    - cron: '3-59/10 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['backend/watchdog.mjs', '.github/workflows/watchdog.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: polaris-independent-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check the saved heartbeat and deliver deduplicated alerts
+        env:
+          STATE_MASTER_KEY: ${{ secrets.WATCH_SITE_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node backend/watchdog.mjs

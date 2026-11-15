@@ -60,13 +60,24 @@ export function validateSubscription(subscription) {
     keys: { p256dh: keys.p256dh, auth: keys.auth },
   };
 }
-export async function sendPush(env, subscription, { title, body, id }) {
+function fitMessage(value, maxBytes) {
+  const text = String(value || ""), encoder = new TextEncoder();
+  if (encoder.encode(text).length <= maxBytes) return text;
+  let out = "", bytes = 0;
+  for (const char of text) { const length = encoder.encode(char).length; if (bytes + length > maxBytes - 3) break; out += char; bytes += length; }
+  return out + "…";
+}
+export async function sendPush(env, subscription, { title, body, id, navigateId, targetView }) {
   const valid = validateSubscription(subscription);
   if (!env.PUSH_KEYS) throw new Error("手机通知服务尚未配置");
+  // Both the legacy and declarative fields carry these strings. Keep the
+  // combined UTF-8 payload below Web Push's encrypted-message size limit.
+  title = fitMessage(title, 120);
+  body = fitMessage(body, 1200);
   const sender = env.PUSH_SEND || webpush.sendNotification.bind(webpush);
   const messageId = id || crypto.randomUUID();
-  const navigate =
-    APP_URL + "?view=events&event=" + encodeURIComponent(messageId);
+  const navigate = targetView === "settings" ? APP_URL + "?view=settings" :
+    APP_URL + "?view=events&event=" + encodeURIComponent(navigateId || messageId);
   const notification = {
     title,
     body,

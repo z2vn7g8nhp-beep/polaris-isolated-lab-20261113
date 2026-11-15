@@ -1,0 +1,158 @@
+/* Plans and personal notes share the journal's paper, ink and quiet controls. */
+.main { margin: 0 auto; align-self: start; }
+.planner-filters, .session-freshness, .template-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+}
+.planner-filters {
+  padding: 18px 0;
+  margin: 18px 0;
+  border-block: 1px solid var(--line);
+}
+.planner-filters label, .notification-form label, #entry-form > label,
+#film-journal-form > label, #batch-template-form > label, .priority-label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.planner-filters input:not([type="checkbox"]), #film-journal-form input,
+#film-journal-form textarea, #entry-form input:not([type="checkbox"]) {
+  min-width: 0;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 16px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  max-width: 100%;
+}
+.planner-filters input[type="checkbox"], .notification-form input[type="checkbox"],
+#entry-form input[type="checkbox"], #batch-template-form input[type="checkbox"] {
+  accent-color: var(--accent);
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+}
+.session-freshness {
+  margin-top: 18px;
+  padding: 15px 18px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  gap: 15px 35px;
+  font-size: 13px;
+}
+.session-freshness small { display: block; color: var(--muted); font-size: 12px; }
+.overview-day { margin: 27px 0; }
+.overview-day h2 { font: 23px/1.5 var(--serif); margin-bottom: 10px; }
+.overview-session {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 19px 0;
+  border-bottom: 1px solid var(--line);
+}
+.overview-session > time { font: 25px/1.3 Georgia, serif; color: var(--accent); }
+.overview-film { min-width: 0; }
+.overview-film > .film-title { font-size: 16px; font-weight: 550; }
+.overview-film > small, .availability { display: block; margin-top: 5px; font-size: 12px; color: var(--muted); }
+.availability.available { color: var(--success); }
+.overview-session .actions { margin: 0; align-items: center; }
+.overview-session .secondary { font-size: 12px; }
+.overview-session .text-button { font-size: 12px; }
+.planner-dialog {
+  width: min(590px, calc(100vw - 28px));
+  max-height: calc(100dvh - 40px);
+  padding: 27px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid #d1c3b4;
+  border-radius: 9px;
+  box-shadow: 0 20px 70px #271a1a55;
+  overscroll-behavior: contain;
+}
+.planner-dialog::backdrop { background: #23191c88; backdrop-filter: blur(4px); }
+#entry-form, #film-journal-form, #batch-template-form, .notification-form { display: grid; gap: 14px; min-width: 0; }
+#entry-form > label:not(:has(input[type="checkbox"])) { align-items: stretch; flex-direction: column; }
+#entry-form input:not([type="checkbox"]), #film-journal-form input, #film-journal-form textarea { width: 100%; }
+#entry-form .rule-dates input, #entry-form .rule-dates select { width: 100%; max-width: 100%; }
+#entry-form .rule-dates > label { display: grid; gap: 8px; font-size: 13px; color: var(--muted); min-width: 0; }
+#film-journal-form { margin-top: 20px; }
+#film-journal-form textarea { resize: vertical; line-height: 1.75; }
+#film-journal-form label small { font-size: 11px; }
+.movie-planner > summary { display: flex; align-items: center; justify-content: space-between; gap: 15px; font: 22px/1.5 var(--serif); }
+.movie-planner > summary small { display: block; margin-top: 6px; font: 12px/1.7 -apple-system, sans-serif; color: var(--muted); }
+.journal-entry { padding: 16px 0; border-top: 1px solid var(--line); margin-top: 14px; }
+.journal-entry strong { font-size: 13px; font-weight: 550; }
+.journal-entry strong time { font-weight: 400; color: var(--muted); margin-left: 9px; }
+.journal-entry small { display: block; font-size: 12px; color: var(--muted); margin-top: 5px; }
+.journal-entry .actions { gap: 8px 12px; margin-top: 12px; }
+.journal-entry .secondary, .journal-entry .text-button { font-size: 12px; min-height: 36px; }
+.journal-entry .secondary .ui-icon { width: 15px; height: 15px; margin-right: 5px; }
+.journal-films { display: grid; gap: 20px; }
+.journal-film { border: 1px solid var(--line); padding: 25px; border-radius: 7px; background: var(--panel); }
+.journal-film-heading { display: flex; gap: 20px; align-items: baseline; justify-content: space-between; }
+.journal-film-heading h2 { margin: 0; font: 25px/1.5 var(--serif); min-width: 0; }
+.journal-film-heading > span { white-space: nowrap; font-size: 12px; color: var(--muted); }
+.journal-tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.journal-tags span { font-size: 11px; background: #eee3dd; color: var(--accent); border-radius: 20px; padding: 3px 10px; }
+.journal-review { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.8; }
+.template-controls { margin-block: 15px; gap: 10px; }
+.template-controls > label { font-size: 13px; color: var(--muted); }
+.template-controls select { min-width: 0; flex: 1; font-size: 14px; }
+.template-controls .secondary { min-height: 38px; font-size: 13px; }
+.template-controls .text-button { font-size: 12px; flex-basis: 100%; text-align: left; }
+.priority-label { margin: 18px 0; flex-wrap: wrap; }
+.priority-label select { font-size: 13px; }
+.template-list article { display: flex; align-items: center; gap: 20px; justify-content: space-between; padding: 15px 0; border-bottom: 1px solid var(--line); }
+.template-list strong { font-size: 14px; font-weight: 550; }
+.template-list small { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
+.template-list .text-button { font-size: 12px; white-space: nowrap; }
+#batch-templates-summary { font-size: 14px; color: var(--accent); margin: 20px 0 15px; }
+.template-movies { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 20px; max-height: 230px; overflow: auto; padding: 10px 0; }
+.template-movies label { display: flex; align-items: baseline; gap: 8px; font-size: 13px; overflow-wrap: anywhere; }
+.notification-form { margin-top: 22px; }
+.notification-form > label { flex-wrap: wrap; }
+.notification-form .rule-dates label { font-size: 13px; }
+.notification-form select { font-size: 14px; }
+.notification-form > label { width: 100%; }
+.notification-form .rule-dates input { width: 100%; max-width: 100%; }
+.session-row { flex-wrap: wrap; }
+.session-row > div { flex-basis: 35%; }
+@media (max-width: 650px) {
+  .sidebar nav { display: flex; gap: 18px; overflow-x: auto; scrollbar-width: none; padding-right: 8px; }
+  .sidebar nav button { flex: none; white-space: nowrap; }
+  .overview-session { grid-template-columns: 58px minmax(0, 1fr); gap: 12px; }
+  .overview-session > time { font-size: 23px; align-self: start; }
+  .overview-session .actions { grid-column: 2; flex-wrap: wrap; gap: 10px 15px; }
+  .overview-film > .film-title { font-size: 15px; }
+  .planner-filters { align-items: stretch; gap: 12px; }
+  .planner-filters > label { flex: 1 0 calc(50% - 12px); flex-wrap: wrap; }
+  .planner-filters > label { min-width: 0; }
+  .planner-filters select { font-size: 16px; max-width: 100%; min-width: 0; width: 100%; }
+  .planner-filters input:not([type="checkbox"]) { width: 100%; }
+  .planner-filters > label:has(select) { display: grid; }
+  .session-freshness { padding: 13px; gap: 12px 22px; font-size: 12px; }
+  .session-freshness small { font-size: 11px; }
+  .planner-dialog { width: 100vw; max-width: 100vw; margin: 0; height: 100dvh; max-height: 100dvh; border: 0; border-radius: 0; padding: calc(20px + env(safe-area-inset-top, 0px)) 20px calc(25px + env(safe-area-inset-bottom, 0px)); }
+  .planner-dialog .picker-heading { position: sticky; top: -20px; background: var(--bg); z-index: 2; padding-block: 8px; }
+  .planner-dialog .picker-heading h2 { font-size: 25px; }
+  .planner-dialog select, .notification-form select { font-size: 16px; }
+  #entry-form .actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .journal-film { padding: 19px; }
+  .journal-film-heading h2 { font-size: 23px; }
+  .journal-film .actions .secondary { font-size: 12px; padding: 7px 10px; }
+  .journal-entry strong time { display: block; margin: 4px 0 0; }
+  .template-movies { grid-template-columns: minmax(0, 1fr); }
+  .template-list article { gap: 12px; }
+  .notification-form > label:has(select) { display: grid; }
+  .session-row > div { flex-basis: 55%; }
+}
