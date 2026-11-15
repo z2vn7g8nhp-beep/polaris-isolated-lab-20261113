@@ -1,8 +1,8 @@
-import { moviePlanner, ruleTemplateControls } from "./planner.mjs?v=optimize-1";
+import { moviePlanner, ruleTemplateControls } from "./planner.mjs?v=audit-2";
 import { icon, wishCount, rememberDisclosures, restoreDisclosures } from "./ui.mjs?v=journal-3";
 import { posterUrl } from "./catalog.mjs?v=calm-1";
-import { captureFocus, restoreFocus } from "./dom-state.mjs?v=optimize-1";
-import { api, rotateToken, deviceId } from "./client.mjs?v=optimize-1";
+import { captureFocus, restoreFocus, captureDrafts, restoreDrafts, clearDrafts, patchHTML, beginBusy } from "./dom-state.mjs?v=audit-2";
+import { api, rotateToken, deviceId } from "./client.mjs?v=audit-2";
 import {
   chinaDay,
   countdown,
@@ -78,7 +78,6 @@ export function restoreBrowsing(value = {}) {
 }
 let ctx,
   detailId = null,
-  modalDirty = false,
   previousFocus = null;
 const get = () => ctx.getData();
 export function selection(movies, search) {
@@ -295,7 +294,7 @@ function detail(movie, data) {
     .map((c, i) => {
       const sessions = rows.filter((r) => r.cinema_id === c.id),
         check = data.checks?.[i];
-      return `<div class="session-cinema"><div class="session-heading"><strong>${esc(c.short)}</strong><small>检查：${stamp(check?.checked)}</small></div>${sessions.length ? `<div class="session-list">${sessions.map((r) => `<div class="session-row ${r.available ? "is-available" : "is-unavailable"} ${matchesSession(r, rule) ? "matches" : "outside-rule"}"><div><strong>${esc(r.starts_at.slice(5, 10))} ${esc(r.starts_at.slice(11, 16))}</strong><small>${esc(r.hall)} ${esc(r.format)}${matchesSession(r, rule) ? "" : " · 不在提醒范围"}</small></div><span>${r.available ? "已观测可售" : "暂不可售"}</span><button class="secondary" data-book-session="${esc(r.id)}">记录购票／日历</button>${safePurchase(r.url) ? `<a class="secondary" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">猫眼 ↗</a>` : ""}</div>`).join("")}</div>` : `<p class="note">${check ? "本次检查未观测到该片未来场次。" : "尚未完成该影院的场次检查。"}</p>`}</div>`;
+      return `<div class="session-cinema"><div class="session-heading"><strong>${esc(c.short)}</strong><small>检查：${stamp(check?.checked)}</small></div>${sessions.length ? `<div class="session-list">${sessions.map((r) => `<div data-render-key="detail-session-${esc(r.id)}" class="session-row ${r.available ? "is-available" : "is-unavailable"} ${matchesSession(r, rule) ? "matches" : "outside-rule"}"><div><strong>${esc(r.starts_at.slice(5, 10))} ${esc(r.starts_at.slice(11, 16))}</strong><small>${esc(r.hall)} ${esc(r.format)}${matchesSession(r, rule) ? "" : " · 不在提醒范围"}</small></div><span>${r.available ? "已观测可售" : "暂不可售"}</span><button class="secondary" data-book-session="${esc(r.id)}">记录购票／日历</button>${safePurchase(r.url) ? `<a class="secondary" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">猫眼 ↗</a>` : ""}</div>`).join("")}</div>` : `<p class="note">${check ? "本次检查未观测到该片未来场次。" : "尚未完成该影院的场次检查。"}</p>`}</div>`;
     })
     .join(
       "",
@@ -320,7 +319,6 @@ function openDetail(id) {
   const movie = get()?.movies.find((m) => m.id === id);
   if (!movie) return;
   detailId = id;
-  modalDirty = false;
   previousFocus = document.activeElement;
   const dialog = document.querySelector("#movie-dialog");
   dialog.innerHTML = detail(movie, get());
@@ -336,7 +334,6 @@ function closeDetail() {
   rememberDisclosures(dialog);
   dialog.close();
   detailId = null;
-  modalDirty = false;
   const url = new URL(location.href);
   url.searchParams.delete("movie");
   history.replaceState(null, "", url);
@@ -347,34 +344,15 @@ export function updateDetail() {
   if (!dialog?.open || !detailId) return;
   const movie = get()?.movies.find((m) => m.id === detailId);
   if (!movie) return;
-  if (
-    modalDirty ||
-    (dialog.contains(document.activeElement) &&
-      document.activeElement.matches("input,select"))
-  ) {
-    const button = dialog.querySelector(".detail-actions [data-star]");
-    if (button) {
-      button.disabled =
-        movie.syncState === "saving" ||
-        (get().connected && !get().personalReady);
-      button.textContent = movie.active
-        ? "★ 已星标 · 点击停止"
-        : monitorEligible(movie, get().movieRules?.[movie.id])
-          ? "☆ 星标并监测"
-          : "☆ 收藏这部电影";
-    }
-    const status = dialog.querySelector(".detail-status");
-    if (status) status.innerHTML = filmStatus(movie, get());
-    return;
-  }
   rememberDisclosures(dialog);
   const scroll = dialog.scrollTop,
     lists = [...dialog.querySelectorAll(".session-list")].map(
       (el) => el.scrollTop,
     ),
-    focus = captureFocus(dialog);
-  dialog.innerHTML = detail(movie, get());
+    focus = captureFocus(dialog), drafts = captureDrafts(dialog);
+  patchHTML(dialog, detail(movie, get()));
   restoreDisclosures(dialog);
+  restoreDrafts(dialog, drafts);
   restoreFocus(dialog, focus);
   [...dialog.querySelectorAll(".session-list")].forEach(
     (el, i) => (el.scrollTop = lists[i] || 0),
@@ -383,7 +361,7 @@ export function updateDetail() {
 }
 
 async function action(button, work, message) {
-  button.disabled = true;
+  const done = beginBusy(button); if (!done) return;
   try {
     await work();
     if (message) ctx.toast(message);
@@ -392,7 +370,7 @@ async function action(button, work, message) {
   } catch (e) {
     ctx.toast(e.message);
   } finally {
-    button.disabled = false;
+    done();
   }
 }
 export function installFeatures(context) {
@@ -418,7 +396,6 @@ export function installFeatures(context) {
         closeDetail();
     }
   });
-  dialog.addEventListener("input", () => (modalDirty = true));
   document.addEventListener("change", (e) => {
     const id = e.target.id;
     if (id === "month-filter") {
@@ -537,7 +514,8 @@ export function installFeatures(context) {
         b,
         async () => {
           await api("rule", { id: b.dataset.resetRule, rule: {} });
-          modalDirty = false;
+          const form = document.querySelector("#rule-form");
+          if (form?.dataset.movie === b.dataset.resetRule) clearDrafts(form);
         },
         "已恢复默认规则",
       );
@@ -578,7 +556,8 @@ export function installFeatures(context) {
         b = form.querySelector("button[type=submit]"),
         values = new FormData(form),
         feedback = form.querySelector("#rule-feedback");
-      b.disabled = true;
+      const done = beginBusy(b); if (!done) return;
+      const submitted = captureDrafts(form);
       try {
         const rule = normalizeRule({
           ...Object.fromEntries(values),
@@ -593,7 +572,7 @@ export function installFeatures(context) {
           paused: values.has("paused"),
         });
         await api("rule", { id: form.dataset.movie, rule });
-        modalDirty = false;
+        clearDrafts(form, submitted);
         ctx.toast("提醒规则已保存，后台将在下一轮应用");
         await ctx.refresh();
         updateDetail();
@@ -601,7 +580,7 @@ export function installFeatures(context) {
         feedback.textContent = error.message;
         ctx.toast(error.message);
       } finally {
-        b.disabled = false;
+        done();
       }
     }
     if (e.target.id === "rotate-form") {
@@ -625,6 +604,10 @@ export function installFeatures(context) {
     initialEvent = new URL(location.href).searchParams.get("event"),
     scrolledToEvent = false;
   return {
+    resetSession() {
+      if (dialog.open) closeDetail();
+      dialog.innerHTML = "";
+    },
     afterRender() {
       updateDetail();
       if (initialEvent && get()?.events.length) {

@@ -13,7 +13,9 @@ const put = (env, key, value) => env.db.prepare("INSERT INTO radar_kv VALUES (?,
 export function heartbeatHealth({ lastSuccess, heartbeat, firstSeenAt, thresholdMinutes, enabled, manuallyPaused }, at = Date.now() / 1000) {
   if (!enabled) return { kind: "disabled", ageMinutes: 0 };
   if (manuallyPaused) return { kind: "paused", ageMinutes: 0 };
-  const anchor = lastSuccess || heartbeat || firstSeenAt || at;
+  // A failed job still writes a heartbeat. It must not indefinitely postpone
+  // an alert when the monitor has never completed its first successful check.
+  const anchor = lastSuccess || Math.min(heartbeat || at, firstSeenAt || at);
   const ageMinutes = Math.max(0, (at - anchor) / 60);
   return { kind: ageMinutes >= thresholdMinutes ? "outage" : lastSuccess ? "healthy" : "waiting", ageMinutes };
 }
@@ -41,7 +43,8 @@ export async function checkWatchdog({ env, prefs, previous = {}, at = Date.now()
   }
   const notificationConfigured = mode !== "off";
   let notificationError = null;
-  if (health.kind === "outage" && (!state.incident || state.incident.phase === "recovery"))
+  if (health.kind === "outage" && (!state.incident || state.incident.phase === "recovery" || state.incident.channel !== mode ||
+      (state.incident.legacyEndpoint && get(env, "push_subscription")?.endpoint !== state.incident.legacyEndpoint)))
     state.incident = { id: "watchdog-" + crypto.randomUUID(), phase: "outage", channel: mode, legacyEndpoint: get(env, "push_subscription")?.endpoint || null, detectedAt: at, alertAcceptedAt: null };
   let incident = state.incident;
   const alertReceipts = incident ? state.receipts[incident.id] || [] : [];

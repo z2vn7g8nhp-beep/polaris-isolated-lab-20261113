@@ -1,6 +1,6 @@
-import { installPlanner, sessionOverview, journalView, plannerSettings } from "./planner.mjs?v=optimize-1";
-import { countdownHero, installCountdown } from "./countdown.mjs?v=optimize-1";
-import { captureFocus, restoreFocus, captureDrafts, restoreDrafts, patchHTML } from "./dom-state.mjs?v=optimize-1";
+import { installPlanner, sessionOverview, journalView, plannerSettings } from "./planner.mjs?v=audit-2";
+import { countdownHero, installCountdown } from "./countdown.mjs?v=audit-2";
+import { captureFocus, restoreFocus, captureDrafts, restoreDrafts, patchHTML, beginBusy, clearDrafts } from "./dom-state.mjs?v=audit-2";
 import { monitorEligible, visibleMovies } from "./rules.mjs?v=planner-1";
 import {
   installFeatures,
@@ -13,15 +13,15 @@ import {
   eventView,
   browsing,
   restoreBrowsing,
-} from "./features.mjs?v=optimize-1";
-import { api, connect, disconnect, deviceId } from "./client.mjs?v=optimize-1";
+} from "./features.mjs?v=audit-2";
+import { api, connect, disconnect, deviceId } from "./client.mjs?v=audit-2";
 import {
   pushSupport,
   enablePhonePush,
   disablePhonePush,
-} from "./push.mjs?v=optimize-1";
+} from "./push.mjs?v=audit-2";
 import { isComing, groupComing, posterUrl } from "./catalog.mjs?v=calm-1";
-import { checkHealth } from "./status.mjs?v=optimize-1";
+import { checkHealth } from "./status.mjs?v=audit-2";
 import { icon, wishCount, rememberDisclosures, restoreDisclosures } from "./ui.mjs?v=journal-3";
 let data = null,
   view = ["library", "sessions", "stars", "journal", "events", "settings"].includes(
@@ -53,7 +53,7 @@ function remember() {
     );
   } catch {}
 }
-installCountdown({ getData: () => data, rerender: () => render(), toast });
+const countdownUI = installCountdown({ getData: () => data, rerender: () => render(), toast });
 const features = installFeatures({
   getData: () => data,
   refresh: load,
@@ -89,10 +89,13 @@ function time(t) {
     : "尚未检查";
 }
 function showState(next) {
-  const changedConnection = data && data.connected !== next.connected;
+  const changedConnection = data && data.connectionId !== next.connectionId;
   data = next;
-  if (changedConnection) planner.resetSession();
-  if (changedConnection) document.querySelectorAll('input[type="password"][data-dirty]').forEach((el) => { delete el.dataset.dirty; el.value = ""; });
+  if (changedConnection) {
+    planner.resetSession(); features.resetSession(); countdownUI.resetSession();
+    renderedView = null;
+    document.querySelectorAll('input[type="password"]').forEach((el) => { delete el.dataset.dirty; el.value = ""; });
+  }
   if (frame === null) frame = requestAnimationFrame(() => { frame = null; render(); });
 }
 
@@ -251,31 +254,32 @@ document.addEventListener("input", (e) => {
     search = e.target.value;
     renderCards();
     remember();
-  } else if (e.target.matches("input,select,textarea") && e.target.closest("#content, #movie-dialog, #entry-dialog"))
+  } else if (e.target.matches("input,select,textarea") && !e.target.closest(".discovery, .event-filters, #session-filters") && e.target.closest("#content, #movie-dialog, #entry-dialog"))
     e.target.dataset.dirty = "true";
 });
 document.addEventListener("change", (e) => {
-  if (e.target.matches("input,select,textarea") && e.target.closest("#content, #movie-dialog, #entry-dialog")) e.target.dataset.dirty = "true";
+  if (e.target.matches("input,select,textarea") && !e.target.closest(".discovery, .event-filters, #session-filters") && e.target.closest("#content, #movie-dialog, #entry-dialog")) e.target.dataset.dirty = "true";
 });
 document.addEventListener("submit", async (e) => {
   if (e.target.id !== "barkform") return;
   e.preventDefault();
   const b = e.target.querySelector("button");
-  b.disabled = true;
+  const done = beginBusy(b); if (!done) return;
   try {
     await api("bark", { key: $("#barkkey").value.trim() });
     $("#barkkey").value = "";
+    clearDrafts(e.target);
     toast("Bark Key 已加密保存，后台将在下一轮应用");
     await load();
   } catch (e) {
     toast(e.message);
   } finally {
-    b.disabled = false;
+    done();
   }
 });
 document.addEventListener("click", async (e) => {
   const b = e.target.closest("button");
-  if (!b) return;
+  if (!b || b.disabled) return;
   if (b.dataset.view) {
     if (!data) return;
     viewMemory[view] = {
@@ -306,7 +310,7 @@ document.addEventListener("click", async (e) => {
   }
   if (b.dataset.star) {
     if (b.disabled) return;
-    b.disabled = true;
+    const done = beginBusy(b); if (!done) return;
     const m = data.movies.find((m) => m.id === b.dataset.star);
     try {
       await api("star", { id: m.id, active: !m.active });
@@ -317,12 +321,12 @@ document.addEventListener("click", async (e) => {
     } catch (e) {
       toast(e.message);
     } finally {
-      b.disabled = false;
+      done();
     }
     return;
   }
   if (b.dataset.action) {
-    b.disabled = true;
+    const done = beginBusy(b); if (!done) return;
     try {
       const action = b.dataset.action;
       if (action === "reload") {
@@ -362,7 +366,7 @@ document.addEventListener("click", async (e) => {
     } catch (e) {
       toast(e.message);
     } finally {
-      b.disabled = false;
+      done();
     }
   }
 });
@@ -376,7 +380,7 @@ document.addEventListener("submit", async (e) => {
   if (e.target.id !== "connectform") return;
   e.preventDefault();
   const b = e.target.querySelector("button");
-  b.disabled = true;
+  const done = beginBusy(b); if (!done) return;
   try {
     await connect($("#githubtoken").value);
     toast("已连接新仓库，配置将加密同步");
@@ -384,7 +388,7 @@ document.addEventListener("submit", async (e) => {
   } catch (error) {
     toast(error.message);
   } finally {
-    b.disabled = false;
+    done();
   }
 });
 document.addEventListener("click", async (e) => {
@@ -411,6 +415,8 @@ function comingList(movies) {
 }
 function phoneBox() {
   const support = pushSupport();
+  const own = data.pushDevices?.find((d) => d.id === deviceId());
+  const phoneConfigured = own ? !own.expired : data.hasLegacyPush && data.pushConfigured;
   const help =
     support.ios && !support.standalone
       ? "iPhone：在 Safari 点「分享 → 添加到主屏幕」，再从桌面图标打开这个网站，然后启用通知。"
@@ -419,12 +425,12 @@ function phoneBox() {
         : support.permission === "denied"
           ? "系统未允许通知，请在设备的通知设置中允许这个网页发送通知。"
           : "点击启用后允许系统通知；网页关闭时也能接收。声音和显示方式仍由系统通知设置决定。";
-  return `<section class="section phone-section"><h2>手机系统通知</h2><p>直接使用手机自带的通知，不需要 Bark。</p><div class="note">${help}</div><label class="note" for="device-name">本机名称</label><br><input id="device-name" maxlength="40" placeholder="例如：我的 iPhone" value="${esc(data.pushDevices?.find((d) => d.id === deviceId())?.name || "")}"><div class="actions"><button class="primary" data-enable-push ${(data.connected && !data.personalReady) || !support.supported || (support.ios && !support.standalone) || support.permission === "denied" ? "disabled" : ""}>${data.pushConfigured ? "重新连接本机通知" : "启用手机通知"}</button>${data.pushConfigured ? '<button class="secondary" data-action="push/test">发送测试通知</button><button class="secondary" data-action="push/remove">停用本机通知</button>' : ""}</div><div class="privacy">${data.pushConfigured ? "通知连接已保存，可在下方管理各设备。" : "首次启用前，请先连接上方的 GitHub。"}<br>启用后点「发送测试通知」，确认这台手机能收到。</div>${data.pushError ? '<p style="color:#e6c38b">' + esc(data.pushError) + "</p>" : ""}${data.requestResult ? '<p class="note">最近一次测试：' + (data.requestResult.ok ? "推送服务已接收，请查看手机" : esc(data.requestResult.message)) + "</p>" : ""}</section>`;
+  return `<section class="section phone-section"><h2>手机系统通知</h2><p>直接使用手机自带的通知，不需要 Bark。</p><div class="note">${help}</div><label class="note" for="device-name">本机名称</label><br><input id="device-name" maxlength="40" placeholder="例如：我的 iPhone" value="${esc(data.pushDevices?.find((d) => d.id === deviceId())?.name || "")}"><div class="actions"><button class="primary" data-enable-push ${(data.connected && !data.personalReady) || !support.supported || (support.ios && !support.standalone) || support.permission === "denied" ? "disabled" : ""}>${phoneConfigured ? "重新连接本机通知" : "启用手机通知"}</button>${phoneConfigured ? '<button class="secondary" data-action="push/test">发送测试通知</button><button class="secondary" data-action="push/remove">停用本机通知</button>' : ""}</div><div class="privacy">${phoneConfigured ? "本机通知连接已保存，可在下方管理各设备。" : own?.expired ? "本机通知连接已失效，请重新启用。" : data.connected ? "本机尚未启用通知，可点击上方按钮完成设置。" : "首次启用前，请先连接上方的 GitHub。"}<br>启用后点「发送测试通知」，确认这台手机能收到。</div>${data.pushError ? '<p style="color:#e6c38b">' + esc(data.pushError) + "</p>" : ""}${data.requestResult ? '<p class="note">最近一次测试：' + (data.requestResult.ok ? "推送服务已接收，请查看手机" : esc(data.requestResult.message)) + "</p>" : ""}</section>`;
 }
 document.addEventListener("click", async (e) => {
   const b = e.target.closest("[data-enable-push]");
   if (!b) return;
-  b.disabled = true;
+  const done = beginBusy(b); if (!done) return;
   try {
     await enablePhonePush($("#device-name")?.value.trim(), {
       renew:
@@ -436,7 +442,7 @@ document.addEventListener("click", async (e) => {
   } catch (error) {
     toast(error.message);
   } finally {
-    b.disabled = false;
+    done();
   }
 });
 

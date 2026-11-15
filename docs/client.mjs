@@ -1,7 +1,7 @@
 import { normalizeRule } from "./rules.mjs?v=planner-1";
 import { keyBytes, sealPreferences, unseal } from "./crypto.mjs";
-import { newerPublic, mergeStatus } from "./status.mjs?v=optimize-1";
-import { normalizePlannerPrefs, normalizeNotificationPrefs, normalizeTemplates, normalizeFilmJournal, normalizeJournalEntry, templatesFor } from "./planner-model.mjs?v=optimize-1";
+import { newerPublic, mergeStatus } from "./status.mjs?v=audit-2";
+import { normalizePlannerPrefs, normalizeNotificationPrefs, normalizeTemplates, normalizeFilmJournal, normalizeJournalEntry, templatesFor } from "./planner-model.mjs?v=audit-2";
 const REPO = "z2vn7g8nhp-beep/polaris-isolated-lab-20261113";
 const API = `https://api.github.com/repos/${REPO}`;
 const storageKey = "polaris.github-token.v1";
@@ -54,6 +54,8 @@ function checkSession(ctx) {
 }
 function beginSession(secret) {
   token = secret;
+  mutations.clear();
+  watchdogStatus = null;
   sessionId++;
   epoch++;
   refreshId++;
@@ -326,6 +328,7 @@ function currentState() {
         ? "暂停请求待后台处理"
         : combined.paused || null,
     connected: Boolean(token),
+    connectionId: sessionId,
     pending: pending(),
     requestResult: latest?.requestResult,
     countdownMovieId: prefs?.countdownMovieId || null,
@@ -549,7 +552,7 @@ export async function api(path, body) {
           throw new Error("请选择片库中的电影");
         p.countdownMovieId = body.id;
         return p;
-      }),
+      }, { monitor: false }),
     );
   if (path === "rule")
     return serial(() =>
@@ -642,7 +645,7 @@ export async function api(path, body) {
           ...new Set([...(p.readEvents || []), ...body.ids]),
         ].slice(-500);
         return p;
-      }),
+      }, { monitor: false }),
     );
   if (path === "test/received")
     return serial(() =>
@@ -653,7 +656,7 @@ export async function api(path, body) {
           at: Date.now() / 1000,
         };
         return p;
-      }),
+      }, { monitor: false }),
     );
   if (path === "bark")
     return serial(() =>
@@ -828,6 +831,7 @@ export async function rotateToken(nextToken, oldToken = token) {
           await fetch("./data/public-key.json", { cache: "no-store" })
         ).json();
       value.revision = crypto.randomUUID();
+      value.monitorRevision = value.revision;
       const envelope = await sealPreferences(value, key, publicKey.spki);
       checkSession(ctx);
       await request("/contents/preferences.enc.json", {

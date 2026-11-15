@@ -1,4 +1,4 @@
-import { connected, api } from "./client.mjs?v=optimize-1";
+import { connected, api } from "./client.mjs?v=audit-2";
 
 const registration =
   "serviceWorker" in navigator

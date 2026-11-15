@@ -9,7 +9,7 @@ export function captureFocus(root) {
     form: el.form?.id,
     name: el.name,
     value: el.type === "checkbox" || el.type === "radio" ? el.value : null,
-    data: Object.entries(el.dataset).filter(([key]) => key !== "dirty"),
+    data: Object.entries(el.dataset).filter(([key]) => !["dirty", "busy"].includes(key)),
     href: el.getAttribute("href"),
     start: el.selectionStart,
     end: el.selectionEnd,
@@ -75,8 +75,26 @@ export function restoreDrafts(root, drafts, { discardPasswords = false } = {}) {
     el.dataset.dirty = "true";
   }
 }
-export function clearDrafts(form) {
-  form?.querySelectorAll("[data-dirty]").forEach((el) => delete el.dataset.dirty);
+export function clearDrafts(form, submitted) {
+  form?.querySelectorAll("[data-dirty]").forEach((el) => {
+    // A slow save may finish after the user has continued typing. Only mark
+    // the submitted values clean; subsequent edits remain unsaved drafts.
+    const current = { ...controlIdentity(el), value: el.value, checked: el.checked,
+      values: el.multiple ? [...el.selectedOptions].map((o) => o.value) : null };
+    if (!submitted || submitted.some((draft) => JSON.stringify(draft) === JSON.stringify(current))) delete el.dataset.dirty;
+  });
+}
+export function beginBusy(button) {
+  const form = button.form;
+  if (button.dataset.busy || form?.dataset.busy) return null;
+  button.dataset.busy = "true";
+  button.disabled = true;
+  if (form) form.dataset.busy = "true";
+  return () => {
+    delete button.dataset.busy;
+    button.disabled = false;
+    if (form) delete form.dataset.busy;
+  };
 }
 
 const nodeKey = (node) => node.nodeType === 1 ? node.id || node.getAttribute("data-render-key") : null;
@@ -92,7 +110,8 @@ export function patchHTML(root, html, { preserveChildren = [] } = {}) {
     if (old.nodeType !== 1) { if (old.nodeValue !== next.nodeValue) old.nodeValue = next.nodeValue; return old; }
     if (old.isEqualNode(next)) return old;
     const dirty = old.hasAttribute("data-dirty");
-    for (const attr of [...old.attributes]) if (attr.name !== "data-dirty" && !next.hasAttribute(attr.name)) old.removeAttribute(attr.name);
+    for (const attr of [...old.attributes]) if (!["data-dirty", "data-busy"].includes(attr.name) &&
+      !(attr.name === "disabled" && old.hasAttribute("data-busy")) && !next.hasAttribute(attr.name)) old.removeAttribute(attr.name);
     for (const attr of [...next.attributes]) if (old.getAttribute(attr.name) !== attr.value) old.setAttribute(attr.name, attr.value);
     if (!preserve.has(old.id)) children(old, next);
     if (!dirty && ["INPUT", "TEXTAREA", "SELECT"].includes(old.tagName)) {

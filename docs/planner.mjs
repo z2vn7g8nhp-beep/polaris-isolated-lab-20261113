@@ -1,8 +1,8 @@
-import { captureDrafts, restoreDrafts, clearDrafts } from "./dom-state.mjs?v=optimize-1";
-import { api } from "./client.mjs?v=optimize-1";
+import { captureDrafts, clearDrafts, beginBusy } from "./dom-state.mjs?v=audit-2";
+import { api } from "./client.mjs?v=audit-2";
 import { chinaDay, normalizeRule } from "./rules.mjs?v=planner-1";
-import { icon, rememberDisclosures, restoreDisclosures } from "./ui.mjs?v=journal-3";
-import { templatesFor, normalizeNotificationPrefs, selectSessions, calendarFile, normalizeJournalEntry, watchdogFreshness } from "./planner-model.mjs?v=optimize-1";
+import { icon } from "./ui.mjs?v=journal-3";
+import { templatesFor, normalizeNotificationPrefs, selectSessions, calendarFile, normalizeJournalEntry, watchdogFreshness } from "./planner-model.mjs?v=audit-2";
 
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const selected = (v) => v ? "selected" : "", checked = (v) => v ? "checked" : "";
@@ -74,27 +74,22 @@ function currentRule() {
   const f = new FormData(document.querySelector("#rule-form"));
   return normalizeRule({ ...Object.fromEntries(f), cinemas: f.getAll("cinemas"), formats: [...f.getAll("formats"), ...(f.get("customFormat")?.trim() ? [f.get("customFormat").trim()] : [])], weekdays: f.getAll("weekdays").map(Number), paused: f.has("paused") });
 }
-function refreshMoviePlanner(id) {
-  const root = document.querySelector("#movie-dialog"), section = root?.querySelector("#movie-planner");
-  const movie = ctx.getData().movies.find((m) => m.id === id);
-  if (section?.dataset.movie !== id || !movie) return;
-  const drafts = captureDrafts(section);
-  rememberDisclosures(root); section.outerHTML = moviePlanner(movie, ctx.getData()); restoreDisclosures(root);
-  restoreDrafts(root.querySelector("#movie-planner"), drafts);
-}
 async function save(button, work, message, id, afterSuccess) {
-  button.disabled = true;
+  const done = beginBusy(button); if (!done) return false;
+  const connectionId = ctx.getData().connectionId;
+  const form = button.form, submitted = captureDrafts(form || button);
   try {
     const result = await work();
-    clearDrafts(button.form);
+    if (ctx.getData().connectionId !== connectionId) return false;
+    if (button.type === "submit" || button.hasAttribute("data-apply-template")) clearDrafts(form, submitted);
     if (result?.synced && !result.queued) ctx.rerender();
     else await ctx.refresh();
-    if (id) refreshMoviePlanner(id);
+    if (ctx.getData().connectionId !== connectionId) return false;
     afterSuccess?.(result);
     if (message) ctx.toast(message);
     return true;
   } catch (e) { ctx.toast(e.message); return false; }
-  finally { button.disabled = false; }
+  finally { done(); }
 }
 function clearUndo() {
   clearTimeout(undoTimer); undoState = null; undoNotice?.remove(); undoNotice = null;
@@ -169,20 +164,7 @@ export function installPlanner(context) {
     }
     if (b.dataset.applyTemplate) {
       const id = b.dataset.applyTemplate, templateId = document.querySelector("#detail-rule-template").value;
-      if (await save(b, () => api("template/apply", { id: templateId, movieIds: [id] }), "模板已应用，等待后台处理")) {
-        const rule = normalizeRule(ctx.getData().movieRules[id]), form = document.querySelector("#rule-form");
-        if (form) {
-          for (const input of form.elements) {
-            if (input.type === "checkbox") input.checked = input.name === "paused" ? rule.paused : (rule[input.name] || []).map(String).includes(input.value);
-            else if (Object.hasOwn(rule, input.name)) input.value = rule[input.name];
-          }
-          const formats = form.querySelector('input[name="formats"]')?.closest("fieldset");
-          for (const value of rule.formats) if (![...form.querySelectorAll('input[name="formats"]')].some((i) => i.value === value)) {
-            const label = document.createElement("label"), input = document.createElement("input"); input.type = "checkbox"; input.name = "formats"; input.value = value; input.checked = true; label.append(input, document.createTextNode(" " + value)); formats?.append(label);
-          }
-          form.elements.customFormat.value = "";
-        }
-      }
+      await save(b, () => api("template/apply", { id: templateId, movieIds: [id] }), "模板已应用，等待后台处理");
     }
   });
   document.addEventListener("submit", async (e) => {
@@ -192,12 +174,12 @@ export function installPlanner(context) {
     if (form.id === "journal-filter-form") { journalSearch = String(f.get("query") || "").trim(); journalTag = String(f.get("tag") || ""); ctx.rerender(); return; }
     if (form.id === "entry-form") {
       const ok = await save(button, () => api(form.dataset.edit ? "journal/edit-entry" : "journal/entry", { id: form.dataset.movie, entry: formEntry(form), stopMonitoring: f.has("stopMonitoring") }), "观影记录已加密保存", form.dataset.movie);
-      if (ok) { closeEntry(); ctx.toast("观影记录已加密保存"); }
+      if (ok && form === dialog.querySelector("#entry-form") && dialog.open) { closeEntry(); ctx.toast("观影记录已加密保存"); }
     }
     if (form.id === "film-journal-form") await save(button, () => api("journal/save", { id: form.dataset.movie, tags: String(f.get("tags")).split(/[,，]/).map((t) => t.trim()).filter(Boolean), review: f.get("review") }), "手记已加密保存", form.dataset.movie);
     if (form.id === "default-template-form") await save(button, () => api("template/default", { id: f.get("template") }), "默认模板已保存");
     if (form.id === "batch-template-form") await save(button, () => api("template/apply", { id: f.get("template"), movieIds: f.getAll("movies"), allStars: f.has("allStars"), onlyUnset: f.has("onlyUnset") }), "已批量应用模板，等待后台处理");
     if (form.id === "notification-prefs-form") await save(button, () => api("planner/settings", { ...Object.fromEntries(f), quietEnabled: f.has("quietEnabled"), urgentBypassQuiet: f.has("urgentBypassQuiet"), releaseChanges: f.has("releaseChanges"), watchdogEnabled: f.has("watchdogEnabled"), digestMinutes: Number(f.get("digestMinutes")), watchdogMinutes: Number(f.get("watchdogMinutes")) }), "通知偏好已保存，等待后台处理");
   });
-  return { afterRender: syncUndoNotice, resetSession() { clearUndo(); if (dialog.open) closeEntry(); } };
+  return { afterRender: syncUndoNotice, resetSession() { clearUndo(); if (dialog.open) closeEntry(); dialog.innerHTML = ""; journalTag = ""; journalSearch = ""; } };
 }

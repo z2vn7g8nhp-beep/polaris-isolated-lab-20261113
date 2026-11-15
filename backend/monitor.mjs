@@ -340,6 +340,10 @@ async function deliver(env) {
   const rules = await get(env, "movie_rules", {}), ready = [];
   for (const e of events) {
     if (Date.now() >= (env.DELIVERY_DEADLINE || Infinity)) break;
+    if (e.kind === "release-date" && !prefs.releaseChanges) {
+      await q(env, "UPDATE radar_events SET cancelled=1 WHERE id=?", e.id).run();
+      continue;
+    }
     const plan = notificationDue(e, rules[e.movie_id], prefs);
     if (plan.due > now()) {
       await q(env, "UPDATE radar_events SET next_try=? WHERE id=?", Math.ceil(plan.due), e.id).run();
@@ -368,16 +372,15 @@ async function deliver(env) {
           if (check?.checked >= e.created_at && Array.isArray(rows))
             snapshots.set(id, new Map(rows.map((r) => [r.id, r])));
         }
+      const currentSessions = detail?.sessions?.map((r) => snapshots.has(r.cinema_id)
+        ? snapshots.get(r.cinema_id).get(r.id) : r).filter(Boolean);
       const eligible = (r) =>
         Date.parse(r.starts_at) > Date.now() &&
-        matchesSession(r, rule) &&
-        (!snapshots.has(r.cinema_id) ||
-          snapshots.get(r.cinema_id).get(r.id)?.available === true);
-      if (
-        movie &&
-        (rule?.paused || (e.kind === "release" && (!monitorEligible(JSON.parse(movie.data), rule) ||
-          (detail?.sessions && !detail.sessions.some(eligible)))))
-      ) {
+        matchesSession(r, rule) && r.available === true;
+      const matching = currentSessions?.filter(eligible);
+      const invalidSale = e.kind === "release" &&
+        (!movie || !monitorEligible(JSON.parse(movie.data), rule) || (matching && !matching.length));
+      if (rule?.paused || invalidSale) {
         await q(
           env,
           "UPDATE radar_events SET cancelled=1 WHERE id=?",
@@ -385,9 +388,8 @@ async function deliver(env) {
         ).run();
         continue;
       }
-      if (detail?.sessions) {
-        const matching = detail.sessions.filter(eligible);
-        if (matching.length !== detail.sessions.length) {
+      if (matching) {
+        if (JSON.stringify(matching) !== JSON.stringify(detail.sessions)) {
           e.body = sessionBody(
             detail.cinema || matching[0]?.cinema || "影院",
             matching,

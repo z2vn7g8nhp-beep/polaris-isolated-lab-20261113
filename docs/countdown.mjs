@@ -1,4 +1,4 @@
-import { api } from "./client.mjs?v=optimize-1";
+import { api } from "./client.mjs?v=audit-2";
 import { posterUrl } from "./catalog.mjs?v=calm-1";
 import { chinaDay } from "./rules.mjs?v=planner-1";
 import { countdownParts, countdownMovie } from "./countdown-model.mjs";
@@ -18,6 +18,7 @@ let ctx,
   onlyStars = false,
   saving = false,
   returnFocus;
+let generation = 0;
 const selected = (data) =>
   countdownMovie(data, pendingId || (data.connected ? unsyncedId : previewId));
 const hourglass =
@@ -160,6 +161,7 @@ export function installCountdown(context) {
       return;
     }
     saving = true;
+    const started = generation;
     pendingId = id;
     if (dialog.open) closePicker();
     ctx.rerender();
@@ -168,6 +170,7 @@ export function installCountdown(context) {
       ?.focus({ preventScroll: true });
     try {
       await api("countdown", { id });
+      if (started !== generation) return;
       previewId = null;
       pendingId = null;
       unsyncedId = null;
@@ -175,6 +178,7 @@ export function installCountdown(context) {
       ctx.rerender();
       ctx.toast("倒计时电影已保存");
     } catch (error) {
+      if (started !== generation) return;
       pendingId = null;
       unsyncedId = id;
       saving = false;
@@ -183,4 +187,11 @@ export function installCountdown(context) {
     }
   });
   setInterval(tick, 1000);
+  return { resetSession() {
+    generation++;
+    previewId = pendingId = unsyncedId = null;
+    saving = false;
+    if (dialog.open) closePicker();
+    dialog.innerHTML = "";
+  } };
 }
